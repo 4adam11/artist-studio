@@ -1,5 +1,8 @@
 node_modules/
 dist/
-server/data/*.json
 .env
 .DS_Store
+
+# Site content, uploaded images and orders live here. Back this folder up;
+# it is not committed because it holds customer data.
+server/data/

@@ -1,0 +1,17 @@
+{
+  "name": "artist-studio",
+  "private": true,
+  "description": "Portfolio and shop for a fiber artist (React client + Express API)",
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "lint": "npm --prefix client run lint",
+    "test": "npm --prefix server test && npm --prefix client test",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start"
+  },
+  "engines": {
+    "node": ">=22.9"
+  }
+}
