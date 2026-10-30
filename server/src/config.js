@@ -14,6 +14,7 @@ export function loadConfig(env = process.env) {
     corsOrigin: env.CORS_ORIGIN || '',
     trustProxy: env.TRUST_PROXY === 'true',
     adminPassword: env.ADMIN_PASSWORD || '',
+    sessionSecret: env.SESSION_SECRET || '',
     currency: (env.CURRENCY || 'usd').toLowerCase(),
     stripeSecretKey: env.STRIPE_SECRET_KEY || '',
     notifyEmail: env.NOTIFY_EMAIL || '',

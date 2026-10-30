@@ -17,7 +17,7 @@ export default [
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true, allowExportNames: ['useCart', 'useStudio'] }],
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true, allowExportNames: ['useCart', 'useStudio', 'useFavorites'] }],
       // JSX usage isn't tracked without eslint-plugin-react, so only flag unused variables.
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', args: 'after-used', ignoreRestSiblings: true }]
     }

@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../api.js';
+import NewsletterForm from '../components/NewsletterForm.jsx';
 import { ErrorNotice, Loading } from '../components/Status.jsx';
-import { formatPrice } from '../format.js';
+import { formatDate, formatPrice } from '../format.js';
 import { useCart } from '../state/CartContext.jsx';
 import { takePendingOrder } from '../state/pendingOrder.js';
 import { useStudio } from '../state/StudioContext.jsx';
 import { usePageTitle } from '../usePageTitle.js';
 
 const MESSAGES = {
-  paid: ['Thank you, your payment was received!', 'A confirmation has been sent to the studio. You will hear from the artist when your order ships.'],
-  received: ['Thank you, your order was received!', 'The artist will email you shortly to confirm your order and arrange payment and delivery.'],
+  paid: ['Thank you, your payment was received!', 'A confirmation email is on its way to you. You will hear from the artist again when your order ships.'],
+  received: ['Thank you, your order was received!', 'A confirmation email is on its way. The artist will email you shortly to arrange payment and delivery.'],
   shipped: ['Your order is on its way!', 'Thank you for supporting handmade work.'],
   awaiting_payment: ['Waiting for payment confirmation', 'If you just paid, this can take a moment. If you left the payment page, your cart is still saved.'],
   cancelled: ['This order was cancelled', 'If this is unexpected, please get in touch through the contact page.']
 };
+
+const STEPS = [['Order placed', ['awaiting_payment', 'paid', 'received', 'shipped']], ['Confirmed', ['paid', 'received', 'shipped']], ['Shipped', ['shipped']]];
 
 export default function OrderConfirmation() {
   usePageTitle('Your order');
@@ -44,13 +47,22 @@ export default function OrderConfirmation() {
   if (!order) return <section className="page"><Loading label="Loading your order…" /></section>;
 
   const [title, detail] = MESSAGES[order.status] || MESSAGES.received;
-  const currency = order.currency || config.currency;
+  const money = (amount) => formatPrice(amount, order.currency || config.currency);
+  const address = order.address;
 
   return (
     <section className="page narrow">
-      <p className="eyebrow">Order #{order.id}</p>
+      <p className="eyebrow">Order #{order.id} · {formatDate(order.createdAt)}</p>
       <h1>{title}</h1>
       <p>{detail}</p>
+
+      {order.status !== 'cancelled' && (
+        <ol className="order-steps">
+          {STEPS.map(([label, statuses]) => <li key={label} className={statuses.includes(order.status) ? 'done' : ''}>{label}</li>)}
+        </ol>
+      )}
+      {order.trackingNumber && <p><strong>Tracking number:</strong> {order.trackingNumber}</p>}
+
       {order.status === 'awaiting_payment' && (
         <div className="actions actions-left">
           <button type="button" className="btn" onClick={load}>Check again</button>
@@ -63,13 +75,35 @@ export default function OrderConfirmation() {
           {order.items.map((item) => (
             <li key={item.productId}>
               <span>{item.quantity} × {item.title}</span>
-              <span>{formatPrice(item.price * item.quantity, currency)}</span>
+              <span>{money(item.price * item.quantity)}</span>
             </li>
           ))}
         </ul>
-        <p className="summary-total"><span>Total</span><strong>{formatPrice(order.total, currency)}</strong></p>
+        <dl className="totals">
+          <div><dt>Subtotal</dt><dd>{money(order.subtotal)}</dd></div>
+          {order.discount && <div className="discount-line"><dt>Discount ({order.discount.code})</dt><dd>−{money(order.discount.amount)}</dd></div>}
+          <div><dt>Shipping</dt><dd>{order.shipping ? money(order.shipping) : 'Free'}</dd></div>
+          <div className="totals-grand"><dt>Total</dt><dd>{money(order.total)}</dd></div>
+        </dl>
+        {address && (
+          <>
+            <h2 className="panel-title">Shipping to</h2>
+            <address className="address">
+              {order.name}<br />
+              {address.line1}<br />
+              {address.line2 && <>{address.line2}<br /></>}
+              {[address.city, address.region, address.postalCode].filter(Boolean).join(', ')}<br />
+              {address.country}
+            </address>
+          </>
+        )}
       </div>
-      <p className="muted small">Keep this page's address to check your order later.</p>
+      <p className="muted small">Bookmark this page to check on your order later.</p>
+
+      <div className="panel">
+        <h2 className="panel-title">Hear about new pieces first</h2>
+        <NewsletterForm source="order" compact />
+      </div>
       <Link to="/shop" className="text-link">Continue shopping</Link>
     </section>
   );

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../api.js';
+import Breadcrumbs from '../components/Breadcrumbs.jsx';
+import Gallery from '../components/Gallery.jsx';
 import { ErrorNotice, Honeypot, Loading } from '../components/Status.jsx';
 import { formatDate } from '../format.js';
 import { useStudio } from '../state/StudioContext.jsx';
@@ -17,16 +19,31 @@ export default function ArtworkDetail() {
     return <NotFound title="Artwork not found" backTo="/portfolio" backLabel="Back to portfolio" />;
   }
 
+  const facts = [['Materials', artwork.materials], ['Size', artwork.dimensions], ['Year', artwork.year]].filter(([, value]) => value);
+
   return (
-    <section className="page detail-layout">
-      <img src={artwork.image} alt={artwork.title} className="detail-image" />
-      <div>
-        <Link to="/portfolio" className="text-link">← Portfolio</Link>
-        <p className="eyebrow">{artwork.category}</p>
-        <h1>{artwork.title}</h1>
-        <p>{artwork.description}</p>
-        <p>{artwork.story || 'This piece carries layers of texture, memory, and studio process.'}</p>
-        <Comments key={artwork.id} artworkId={artwork.id} />
+    <section className="page">
+      <Breadcrumbs items={[['Home', '/'], ['Portfolio', '/portfolio'], [artwork.title]]} />
+      <div className="product-layout">
+        <Gallery images={[artwork.image, ...(artwork.gallery || [])]} alt={artwork.title} />
+        <div className="product-info">
+          <p className="eyebrow">{artwork.category}</p>
+          <h1>{artwork.title}</h1>
+          <p className="lead">{artwork.description}</p>
+          <p>{artwork.story || 'This piece carries layers of texture, memory, and studio process.'}</p>
+          {facts.length > 0 && (
+            <dl className="facts">
+              {facts.map(([label, value]) => (
+                <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+              ))}
+            </dl>
+          )}
+          <div className="callout">
+            <p><strong>Love this piece?</strong> I can make something in a similar style, sized and coloured for you.</p>
+            <Link to={`/commissions?ref=${encodeURIComponent(artwork.title)}`} className="btn">Commission something similar</Link>
+          </div>
+          <Comments key={artwork.id} artworkId={artwork.id} />
+        </div>
       </div>
     </section>
   );
@@ -65,7 +82,7 @@ function Comments({ artworkId }) {
   return (
     <div className="panel">
       <h2 className="panel-title">Discuss this piece</h2>
-      <form onSubmit={handleSubmit} className="form-card">
+      <form onSubmit={handleSubmit} className="form-card form-flat">
         <label>
           Your name
           <input name="name" maxLength={60} required />

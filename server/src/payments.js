@@ -18,8 +18,10 @@ export function createPayments({ secretKey, currency, publicUrl }) {
     return json;
   }
 
+  const cents = (amount) => Math.round(amount * 100);
+
   return {
-    createCheckoutSession(order) {
+    async createCheckoutSession(order) {
       const form = {
         mode: 'payment',
         customer_email: order.email,
@@ -27,12 +29,26 @@ export function createPayments({ secretKey, currency, publicUrl }) {
         success_url: `${publicUrl}/order/${order.token}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${publicUrl}/cart`
       };
-      order.items.forEach((item, i) => {
-        form[`line_items[${i}][quantity]`] = item.quantity;
+
+      const lines = order.items.map((item) => ({ name: item.title, amount: item.price, quantity: item.quantity }));
+      if (order.shipping > 0) lines.push({ name: 'Shipping', amount: order.shipping, quantity: 1 });
+      lines.forEach((line, i) => {
+        form[`line_items[${i}][quantity]`] = line.quantity;
         form[`line_items[${i}][price_data][currency]`] = currency;
-        form[`line_items[${i}][price_data][unit_amount]`] = Math.round(item.price * 100);
-        form[`line_items[${i}][price_data][product_data][name]`] = item.title;
+        form[`line_items[${i}][price_data][unit_amount]`] = cents(line.amount);
+        form[`line_items[${i}][price_data][product_data][name]`] = line.name;
       });
+
+      // Our own discount codes become a single-use Stripe coupon for this order,
+      // so the buyer sees the same discount on Stripe's page.
+      if (order.discount) {
+        const coupon = await stripe('coupons', {
+          method: 'POST',
+          form: { amount_off: cents(order.discount.amount), currency, duration: 'once', max_redemptions: 1, name: order.discount.code }
+        });
+        form['discounts[0][coupon]'] = coupon.id;
+      }
+
       return stripe('checkout/sessions', { method: 'POST', form });
     },
 
