@@ -6,3 +6,6 @@ dist/
 # Site content, uploaded images and orders live here. Back this folder up;
 # it is not committed because it holds customer data.
 server/data/
+
+# Local preview screenshots (not part of the site)
+preview-screenshots/
