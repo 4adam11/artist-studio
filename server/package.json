@@ -16,5 +16,8 @@
   "description": "API for the online store",
   "engines": {
     "node": ">=20.19"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
   }
 }

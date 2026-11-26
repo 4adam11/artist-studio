@@ -9,7 +9,8 @@ export function loadConfig(env = process.env) {
   return {
     port: Number(env.PORT || 5050),
     dataDir: path.resolve(serverRoot, env.DATA_DIR || 'data'),
-    clientDist: path.resolve(serverRoot, '../client/dist'),
+    // Where the built storefront is. The ready-to-run copy in app/ sets this.
+    clientDist: path.resolve(serverRoot, env.CLIENT_DIST || '../client/dist'),
     publicUrl: (env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, ''),
     corsOrigin: env.CORS_ORIGIN || '',
     trustProxy: env.TRUST_PROXY === 'true',

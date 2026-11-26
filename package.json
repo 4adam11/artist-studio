@@ -3,6 +3,8 @@
   "private": true,
   "description": "Minimal online store with an admin for products, orders and customers (React + Express)",
   "scripts": {
+    "start:app": "node app/start.mjs",
+    "package": "node scripts/package.mjs",
     "dev": "node scripts/dev.mjs",
     "setup": "npm --prefix server install && npm --prefix client install",
     "dev:server": "npm --prefix server run dev",

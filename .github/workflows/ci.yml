@@ -36,3 +36,13 @@ jobs:
       - name: Client - build
         run: npm run build
         working-directory: client
+
+      - name: Ready-to-run copy (app/) is up to date
+        run: |
+          node scripts/package.mjs
+          git diff --stat --exit-code -- app || (echo "app/ is out of date: run npm run package and commit the result" && exit 1)
+      - name: Ready-to-run copy starts
+        run: |
+          NO_BROWSER=1 node app/start.mjs &
+          for i in $(seq 1 30); do curl -sf http://localhost:5050/api/health && exit 0; sleep 1; done
+          exit 1

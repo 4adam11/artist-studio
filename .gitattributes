@@ -1,0 +1,7 @@
+# Keep line endings as written: Windows batch files need CRLF, shell scripts LF.
+*.cmd -text
+*.sh text eol=lf
+*.command text eol=lf
+# Built files (regenerate with npm run package).
+app/server.mjs linguist-generated -diff
+app/public/** linguist-generated -diff

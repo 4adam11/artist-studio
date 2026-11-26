@@ -9,3 +9,6 @@ server/data/
 
 # Local preview screenshots (not part of the site)
 preview-screenshots/
+
+# Node.js downloaded by the start scripts
+.runtime/

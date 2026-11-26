@@ -30,6 +30,8 @@ A minimal online store with a Shopify-style admin. Sell anything: physical produ
 ## Structure
 
 ```
+app/                    ready-to-run copy (start.mjs, bundled server, built store)
+Start Store.cmd         Windows launcher · Start Store.command (Mac) · start.sh
 client/                 React 18 + React Router 7 + Vite; Geist typeface
   src/styles.css        the whole design (colours and sizes are tokens at the top)
   src/pages/            storefront pages
@@ -47,33 +49,41 @@ server/                 Express 5 API
   test/                 API tests
 ```
 
-## Run locally
+## Run it (no setup)
 
-Requires **Node.js 22.12 or newer** (20.19+ also works). Check with `node -v`; get the "LTS" version from https://nodejs.org.
+1. Download the project (green **Code** button on GitHub, then **Download ZIP**) and unzip it.
+2. Start it:
+   - **Windows:** double-click **`Start Store.cmd`**
+   - **Mac:** double-click **`Start Store.command`** (first time: right-click it and choose **Open**)
+   - **Linux:** run `sh start.sh`
+3. Your browser opens the store. The window shows the admin link and password.
+
+That's all: there's nothing to install. The launcher uses your Node.js if it is version 20 or newer; otherwise it downloads the official Node.js from nodejs.org into a `.runtime` folder inside the project (one time, about 30 MB; nothing is installed on your computer). If port 5050 is busy it picks the next free one. Keep the window open while you use the store; close it to stop.
+
+On first run it creates `server/.env` with a random admin password. Change `ADMIN_PASSWORD` there if you like, then start again.
+
+If Windows shows "Windows protected your PC", click **More info**, then **Run anyway** (the file is a plain script you can open in Notepad to read).
+
+## Develop
+
+For changing the code (needs Node.js 22.12+ or 20.19+):
 
 ```powershell
-npm run dev
+npm run dev            # installs on first run, starts the API and a live-reloading store
 ```
 
-That one command installs everything on the first run, creates `server/.env`, and starts the store. Open:
+Store: http://localhost:5173 · Admin: http://localhost:5173/admin (set `ADMIN_PASSWORD` in `server/.env`).
 
-- Store: http://localhost:5173
-- Admin: http://localhost:5173/admin (set `ADMIN_PASSWORD` in `server/.env` first, then run `npm run dev` again)
+After changing code, run `npm run package` to rebuild the ready-to-run copy in `app/`, and commit it. CI checks it is up to date.
 
-Press **Ctrl+C** to stop. The first run creates a few sample products, collections and pages; edit or delete them in the admin.
-
-You can also start the two parts separately with `npm run dev:server` and `npm run dev:client`.
-
-### If it doesn't start
+### If something doesn't start
 
 | You see | Fix |
 |---|---|
-| `This store needs Node.js 22.12 or newer` | Install the LTS version from https://nodejs.org, then close and reopen VS Code. |
-| `npm` or `node` "is not recognized" | Install Node.js, then close and reopen VS Code (restart the computer if it persists). |
-| `running scripts is disabled on this system` (PowerShell) | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, answer `Y`, and try again. |
-| `Port 5050 is already in use` | The store is already running in another terminal. Close it (or restart VS Code). |
-| The page says "Could not connect to the store" | The API part isn't running. Use `npm run dev`, which starts both parts. |
-| `Missing script: "dev"` | You're on an old version of the code. Switch to the latest branch and run `git pull`. |
+| "Could not download Node.js" | Check your internet connection, or install the LTS version from https://nodejs.org and start again. |
+| "This store needs Node.js 22.12 or newer" (`npm run dev`) | Use the Start Store file instead, or install the LTS version from https://nodejs.org. |
+| `running scripts is disabled on this system` (PowerShell) | Use the Start Store file, or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
+| "Could not connect to the store" in the browser | The window running the store was closed. Start it again. |
 
 ## Configuration
 
@@ -104,12 +114,10 @@ GitHub Actions runs tests, lint and a production build on every push.
 
 ## Deploying
 
-The server also serves the built store, so one Node process runs everything:
+The ready-to-run copy needs only Node.js, so on a server you can simply run:
 
-```powershell
-npm run setup
-npm run build
-npm start
+```sh
+node app/start.mjs
 ```
 
 On a host such as Render or Railway, set `PUBLIC_URL`, `ADMIN_PASSWORD` and `TRUST_PROXY=true` (plus Stripe and email settings if used), and keep `server/data` on a persistent disk (or point `DATA_DIR` at one).

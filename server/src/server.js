@@ -9,7 +9,8 @@ import { getSettings } from './settings.js';
 import { createStore } from './store.js';
 import { loadEnvFile } from './env.js';
 
-loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'));
+// ENV_FILE lets the ready-to-run copy in app/ point at server/.env.
+loadEnvFile(process.env.ENV_FILE || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'));
 
 const config = loadConfig();
 const store = await createStore({ dataDir: config.dataDir, seed });
