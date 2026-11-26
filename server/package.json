@@ -13,7 +13,7 @@
     "multer": "^2.5.0",
     "nodemailer": "^10.3.1"
   },
-  "description": "API for the Artist Studio portfolio and shop",
+  "description": "API for the online store",
   "engines": {
     "node": ">=22.9"
   }

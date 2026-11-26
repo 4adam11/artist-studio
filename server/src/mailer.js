@@ -1,9 +1,10 @@
 import nodemailer from 'nodemailer';
+import { orderNumber } from './orders.js';
 
-// Sends emails when SMTP settings are configured: notifications to the artist
-// and confirmations to customers. Without SMTP, each email is just logged, and
-// everything can still be read on the admin page.
-export function createMailer({ smtp, notifyEmail, fromEmail, publicUrl, currency }) {
+// Sends emails when SMTP settings are configured: notifications to the
+// merchant and confirmations to customers. Without SMTP, each email is just
+// logged, and everything can still be read in the admin.
+export function createMailer({ smtp, notifyEmail, fromEmail, publicUrl }, getStoreName = () => 'Our store') {
   const transport = smtp.host
     ? nodemailer.createTransport({
         host: smtp.host,
@@ -14,7 +15,7 @@ export function createMailer({ smtp, notifyEmail, fromEmail, publicUrl, currency
     : null;
   const from = fromEmail || notifyEmail;
 
-  const money = (amount) => {
+  const money = (amount, currency) => {
     try {
       return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase() }).format(amount);
     } catch {
@@ -28,27 +29,32 @@ export function createMailer({ smtp, notifyEmail, fromEmail, publicUrl, currency
       return false;
     }
     try {
-      await transport.sendMail({ from, to, replyTo, subject, text });
+      await transport.sendMail({ from: `${getStoreName()} <${from}>`, to, replyTo, subject, text });
       return true;
     } catch (error) {
-      // A mail failure should never lose a message or an order; it is already
-      // saved and visible on the admin page.
+      // A mail failure must never lose a message or an order; both are saved
+      // and visible in the admin.
       console.error('[mail] Failed to send:', error.message);
       return false;
     }
   }
 
-  const orderLines = (order) => [
-    ...order.items.map((item) => `  ${item.quantity} × ${item.title}  ${money(item.price * item.quantity)}`),
-    '',
-    `  Subtotal  ${money(order.subtotal)}`,
-    ...(order.discount ? [`  Discount (${order.discount.code})  −${money(order.discount.amount)}`] : []),
-    `  Shipping  ${order.shipping ? money(order.shipping) : 'Free'}`,
-    `  Total     ${money(order.total)}`
-  ];
+  const summary = (order) => {
+    const m = (amount) => money(amount, order.currency);
+    return [
+      ...order.items.map((item) => `${item.quantity} × ${item.title}${item.variantTitle ? ` (${item.variantTitle})` : ''}  ${m(item.price * item.quantity)}`),
+      '',
+      `Subtotal  ${m(order.subtotal)}`,
+      ...(order.discount ? [`Discount (${order.discount.code})  -${m(order.discount.amount)}`] : []),
+      `Shipping (${order.shipping.name})  ${order.shipping.price ? m(order.shipping.price) : 'Free'}`,
+      ...(order.tax ? [`Tax  ${m(order.tax)}`] : []),
+      `Total  ${m(order.total)}`
+    ];
+  };
 
-  const address = (a) => [a.line1, a.line2, [a.city, a.region, a.postalCode].filter(Boolean).join(', '), a.country].filter(Boolean).join('\n  ');
-  const orderLink = (order) => `${publicUrl}/order/${order.token}`;
+  const address = (a) => [a.line1, a.line2, [a.postalCode, a.city, a.region].filter(Boolean).join(' '), a.country].filter(Boolean).join('\n');
+  const name = (order) => `${order.customer.firstName} ${order.customer.lastName}`;
+  const link = (order) => `${publicUrl}/orders/${order.token}`;
 
   return {
     enabled: Boolean(transport && from),
@@ -56,114 +62,69 @@ export function createMailer({ smtp, notifyEmail, fromEmail, publicUrl, currency
     contactReceived: (message) =>
       send({
         to: notifyEmail,
-        subject: `New studio message from ${message.name}`,
+        subject: `${message.subject}: message from ${message.name}`,
         replyTo: message.email,
-        text: `${message.name} <${message.email}> wrote:\n\n${message.message}`
+        text: [
+          `${message.name} <${message.email}>`,
+          message.orderNumber ? `Order: ${message.orderNumber}` : '',
+          '',
+          message.message
+        ].filter((line, i) => line || i === 2).join('\n')
       }),
 
     orderPlaced: (order) =>
       send({
         to: notifyEmail,
-        subject: `New order #${order.id} from ${order.name} (${money(order.total)})`,
-        replyTo: order.email,
+        subject: `Order #${orderNumber(order)} from ${name(order)} (${money(order.total, order.currency)})`,
+        replyTo: order.customer.email,
         text: [
-          `${order.name} <${order.email}>${order.phone ? `, ${order.phone}` : ''} placed an order.`,
-          `Status: ${order.status === 'paid' ? 'paid online' : 'not paid yet: send the buyer payment details'}`,
+          `Payment: ${order.paymentStatus === 'paid' ? 'paid online' : 'not paid yet. Send the customer payment details.'}`,
           '',
-          ...orderLines(order),
+          ...summary(order),
           '',
           'Ship to:',
-          `  ${order.name}\n  ${address(order.address)}`,
-          order.note ? `\nNote from the buyer: ${order.note}` : ''
+          name(order),
+          address(order.shippingAddress),
+          order.customer.phone ? `Phone: ${order.customer.phone}` : '',
+          order.note ? `\nNote: ${order.note}` : ''
         ].join('\n')
       }),
 
     orderConfirmation: (order) =>
       send({
-        to: order.email,
+        to: order.customer.email,
         replyTo: notifyEmail,
-        subject: `Thank you for your order #${order.id}`,
+        subject: `Order #${orderNumber(order)} confirmed`,
         text: [
-          `Hi ${order.name},`,
+          `Hi ${order.customer.firstName},`,
           '',
-          order.status === 'paid'
-            ? 'Thank you! Your payment was received and your order is being prepared.'
-            : 'Thank you! Your order was received. I will email you shortly with payment details and to confirm delivery.',
+          order.paymentStatus === 'paid'
+            ? 'Thanks for your order. Payment was received and we are getting it ready.'
+            : 'Thanks for your order. We will email you shortly with payment details.',
           '',
-          ...orderLines(order),
+          ...summary(order),
           '',
           'Shipping to:',
-          `  ${address(order.address)}`,
+          address(order.shippingAddress),
           '',
-          `You can check your order any time here: ${orderLink(order)}`,
-          '',
-          'With love from the studio'
+          `Order status: ${link(order)}`
         ].join('\n')
       }),
 
     orderShipped: (order) =>
       send({
-        to: order.email,
+        to: order.customer.email,
         replyTo: notifyEmail,
-        subject: `Your order #${order.id} is on its way`,
+        subject: `Order #${orderNumber(order)} has shipped`,
         text: [
-          `Hi ${order.name},`,
+          `Hi ${order.customer.firstName},`,
           '',
-          'Good news: your order has been carefully packed and shipped.',
+          'Your order is on its way.',
           order.trackingNumber ? `Tracking number: ${order.trackingNumber}` : '',
+          order.trackingUrl ? `Track it: ${order.trackingUrl}` : '',
           '',
-          `Order details: ${orderLink(order)}`,
-          '',
-          'Thank you for supporting handmade work!'
-        ].join('\n')
-      }),
-
-    commissionReceived: (request) =>
-      send({
-        to: notifyEmail,
-        subject: `New commission request: ${request.type} for ${request.name}`,
-        replyTo: request.email,
-        text: [
-          `${request.name} <${request.email}> would like a commission.`,
-          '',
-          `Type: ${request.type}`,
-          `Size: ${request.size || '-'}`,
-          `Colours: ${request.colors || '-'}`,
-          `Budget: ${request.budget || '-'}`,
-          `Needed by: ${request.deadline || '-'}`,
-          '',
-          request.details,
-          '',
-          ...request.references.map((url) => `Reference: ${publicUrl}${url}`)
-        ].join('\n')
-      }),
-
-    commissionAcknowledged: (request) =>
-      send({
-        to: request.email,
-        replyTo: notifyEmail,
-        subject: 'Your commission request was received',
-        text: [
-          `Hi ${request.name},`,
-          '',
-          `Thank you for your idea for a ${request.type.toLowerCase()}! I read every request personally and will reply within a few days with questions, a quote and a timeline.`,
-          '',
-          'With love from the studio'
-        ].join('\n')
-      }),
-
-    backInStock: (alert, product) =>
-      send({
-        to: alert.email,
-        subject: `${product.title} is available again`,
-        text: [
-          'Hello!',
-          '',
-          `You asked to hear when "${product.title}" was back. It's available now, but handmade pieces are limited, so don't wait too long:`,
-          `${publicUrl}/shop/${product.id}`,
-          '',
-          'With love from the studio'
-        ].join('\n')
+          `Order status: ${link(order)}`
+        ].filter((line, i, all) => line || all[i - 1]).join('\n')
       })
   };
 }

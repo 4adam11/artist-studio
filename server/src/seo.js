@@ -1,83 +1,89 @@
+import { findByHandle, isListed } from './catalog.js';
 import { getSettings } from './settings.js';
 
-// The React app renders in the browser, but link previews (WhatsApp,
-// Instagram, Facebook, Pinterest) and search engines read the raw HTML.
-// So when serving the built site, the server fills in the page title,
-// description and image for each product, artwork and journal post.
+// The storefront renders in the browser, but link previews (WhatsApp,
+// Instagram, Pinterest) and search engines read the raw HTML. So when serving
+// the built site, the server fills in the title, description and image for
+// each product, collection and page.
 
 const escapeHtml = (value) =>
   String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
-const STATIC_PAGES = {
-  '/': null,
-  '/shop': ['Shop', 'Original handmade fabric paintings, crochet and fiber pieces.'],
-  '/portfolio': ['Portfolio', 'A gallery of fabric paintings, crochet and fiber art.'],
-  '/commissions': ['Commissions', 'Have a one-of-a-kind piece made for your home or someone you love.'],
-  '/journal': ['Journal', 'Stories, works in progress and life in the studio.'],
-  '/events': ['Events', 'Markets, exhibitions and workshops where you can see the work in person.'],
-  '/about': ['About', 'About the artist and the studio.'],
-  '/faq': ['FAQ', 'Answers to common questions about orders, shipping and commissions.'],
-  '/shipping-returns': ['Shipping & returns', 'How orders are packed, shipped and returned.'],
-  '/contact': ['Contact', 'Get in touch with the studio.']
-};
+const firstParagraph = (text) => String(text || '').replace(/^#+\s*/gm, '').split(/\n{2,}/).find(Boolean)?.slice(0, 200) || '';
 
 export function pageMeta(pathname, { store, config }) {
-  const settings = getSettings(store);
-  const site = 'Artist Studio';
+  const settings = getSettings(store, config);
   const absolute = (url) => (url && url.startsWith('/') ? `${config.publicUrl}${url}` : url);
+  const products = store.where('products', isListed);
   const base = {
-    title: site,
-    description: settings.siteDescription,
-    image: absolute(store.all('artworks').find((item) => item.featured)?.image || ''),
+    title: settings.storeName,
+    description: settings.seoDescription || settings.tagline,
+    image: absolute(products[0]?.images[0] || ''),
     url: `${config.publicUrl}${pathname === '/' ? '' : pathname}`,
     type: 'website',
     jsonLd: null
   };
+  const titled = (title) => `${title} · ${settings.storeName}`;
 
-  const match = pathname.match(/^\/(shop|portfolio|journal)\/(\d+)$/);
-  if (match) {
-    const [, section, id] = match;
-    const collection = { shop: 'products', portfolio: 'artworks', journal: 'posts' }[section];
-    const item = store.find(collection, id);
-    if (!item || (collection === 'posts' && !item.published)) return base;
+  const [, section, handle] = pathname.match(/^\/(products|collections|pages)\/([a-z0-9-]+)$/) || [];
 
+  if (section === 'products') {
+    const product = findByHandle(store, 'products', handle);
+    if (!product || !isListed(product)) return base;
+    const prices = product.variants.map((variant) => variant.price);
+    const inStock = product.variants.some((variant) => variant.stock > 0);
     const meta = {
       ...base,
-      title: `${item.title} · ${site}`,
-      description: item.excerpt || item.description,
-      image: absolute(item.image),
-      type: collection === 'posts' ? 'article' : 'website'
+      title: titled(product.title),
+      description: firstParagraph(product.description) || base.description,
+      image: absolute(product.images[0]) || base.image,
+      type: 'product'
     };
-    if (collection === 'products') {
-      meta.jsonLd = {
-        '@context': 'https://schema.org',
-        '@type': 'Product',
-        name: item.title,
-        description: item.description,
-        image: [item.image, ...(item.gallery || [])].map(absolute),
-        category: item.category,
-        offers: {
-          '@type': 'Offer',
-          price: item.price.toFixed(2),
-          priceCurrency: config.currency.toUpperCase(),
-          availability: item.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/SoldOut',
-          url: meta.url
-        }
-      };
-    }
+    meta.jsonLd = {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: product.title,
+      description: firstParagraph(product.description),
+      image: product.images.map(absolute),
+      sku: product.variants[0].sku || undefined,
+      offers: {
+        '@type': 'AggregateOffer',
+        lowPrice: Math.min(...prices).toFixed(2),
+        highPrice: Math.max(...prices).toFixed(2),
+        priceCurrency: settings.currency.toUpperCase(),
+        availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/SoldOut',
+        url: meta.url
+      }
+    };
     return meta;
   }
 
-  const page = STATIC_PAGES[pathname];
-  if (page) return { ...base, title: `${page[0]} · ${site}`, description: page[1] };
-  return base;
+  if (section === 'collections') {
+    if (handle === 'all') return { ...base, title: titled('All products') };
+    const collection = findByHandle(store, 'collections', handle);
+    if (!collection) return base;
+    return {
+      ...base,
+      title: titled(collection.title),
+      description: collection.description || base.description,
+      image: absolute(collection.image) || base.image
+    };
+  }
+
+  if (section === 'pages') {
+    const page = findByHandle(store, 'pages', handle);
+    if (!page || !page.published) return base;
+    return { ...base, title: titled(page.title), description: firstParagraph(page.body) || base.description };
+  }
+
+  const fixed = { '/cart': 'Cart', '/search': 'Search', '/contact': 'Contact', '/orders/lookup': 'Find your order' };
+  return fixed[pathname] ? { ...base, title: titled(fixed[pathname]) } : base;
 }
 
 export function renderIndex(html, meta) {
   const tags = [
     `<meta name="description" content="${escapeHtml(meta.description)}" />`,
     `<link rel="canonical" href="${escapeHtml(meta.url)}" />`,
-    `<meta property="og:site_name" content="Artist Studio" />`,
     `<meta property="og:type" content="${meta.type}" />`,
     `<meta property="og:title" content="${escapeHtml(meta.title)}" />`,
     `<meta property="og:description" content="${escapeHtml(meta.description)}" />`,
@@ -94,12 +100,14 @@ export function renderIndex(html, meta) {
 
 export function sitemap({ store, config }) {
   const paths = [
-    ...Object.keys(STATIC_PAGES),
-    ...store.all('products').map((item) => `/shop/${item.id}`),
-    ...store.all('artworks').map((item) => `/portfolio/${item.id}`),
-    ...store.where('posts', (post) => post.published).map((item) => `/journal/${item.id}`)
+    '/',
+    '/collections/all',
+    ...store.all('collections').map((item) => `/collections/${item.handle}`),
+    ...store.where('products', isListed).map((item) => `/products/${item.handle}`),
+    ...store.where('pages', (page) => page.published).map((item) => `/pages/${item.handle}`),
+    '/contact'
   ];
-  const urls = paths.map((path) => `  <url><loc>${escapeHtml(config.publicUrl + (path === '/' ? '/' : path))}</loc></url>`);
+  const urls = paths.map((path) => `  <url><loc>${escapeHtml(config.publicUrl + path)}</loc></url>`);
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
 }
 
@@ -109,7 +117,7 @@ export function robots({ config }) {
     'Disallow: /admin',
     'Disallow: /cart',
     'Disallow: /checkout',
-    'Disallow: /order/',
+    'Disallow: /orders/',
     'Disallow: /api/',
     `Sitemap: ${config.publicUrl}/sitemap.xml`,
     ''

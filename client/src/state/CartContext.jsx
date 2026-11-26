@@ -1,19 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { addToCart, cartCount, parseStoredCart, removeFromCart, setQuantity } from './cart.js';
+import { addItem, cartCount, cartSubtotal, parseStoredCart, removeItem, resolveCart, setQuantity } from './cart.js';
 import { readStorage, writeStorage } from './storage.js';
+import { useStore } from './StoreContext.jsx';
 
-const STORAGE_KEY = 'artist-studio-cart';
+const STORAGE_KEY = 'store-cart';
 const CartContext = createContext(null);
 
 export function CartProvider({ children }) {
+  const { products, status } = useStore();
   const [cart, setCart] = useState(() => readStorage(STORAGE_KEY, parseStoredCart));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [adjusted, setAdjusted] = useState(false);
 
   useEffect(() => {
     writeStorage(STORAGE_KEY, cart);
   }, [cart]);
 
-  // Keep the cart in sync when the site is open in several tabs.
+  // Keep the cart in sync when the store is open in several tabs.
   useEffect(() => {
     const onStorage = (event) => {
       if (event.key === STORAGE_KEY) setCart(parseStoredCart(event.newValue));
@@ -22,21 +25,34 @@ export function CartProvider({ children }) {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // Adding an item opens the cart drawer so the buyer sees it went in.
-  const add = useCallback((product) => {
-    setCart((prev) => addToCart(prev, product.id, product.stock));
+  const { lines, changed } = useMemo(() => resolveCart(cart, products), [cart, products]);
+
+  // If stock changed since an item was added, fix the saved cart and say so.
+  useEffect(() => {
+    if (status !== 'ready' || !changed) return;
+    setCart(lines.map((line) => ({ variantId: line.variant.id, quantity: line.quantity })));
+    setAdjusted(true);
+  }, [status, changed, lines]);
+
+  // Adding opens the cart drawer so the shopper sees it worked.
+  const add = useCallback((variant, quantity = 1) => {
+    setCart((prev) => addItem(prev, variant.id, quantity, variant.stock));
     setDrawerOpen(true);
   }, []);
-  const update = useCallback((product, quantity) => setCart((prev) => setQuantity(prev, product.id, quantity, product.stock)), []);
-  const remove = useCallback((id) => setCart((prev) => removeFromCart(prev, id)), []);
+  const update = useCallback((variant, quantity) => setCart((prev) => setQuantity(prev, variant.id, quantity, variant.stock)), []);
+  const remove = useCallback((variantId) => setCart((prev) => removeItem(prev, variantId)), []);
   const clear = useCallback(() => setCart([]), []);
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const value = useMemo(
-    () => ({ cart, count: cartCount(cart), add, update, remove, clear, replace: setCart, drawerOpen, openDrawer, closeDrawer }),
-    [cart, add, update, remove, clear, drawerOpen, openDrawer, closeDrawer]
-  );
+  const value = useMemo(() => ({
+    lines,
+    count: cartCount(cart),
+    subtotal: cartSubtotal(lines),
+    quantityOf: (variantId) => cart.find((item) => item.variantId === variantId)?.quantity || 0,
+    adjusted,
+    add, update, remove, clear, drawerOpen, openDrawer, closeDrawer
+  }), [cart, lines, adjusted, add, update, remove, clear, drawerOpen, openDrawer, closeDrawer]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

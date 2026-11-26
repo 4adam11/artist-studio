@@ -1,7 +1,7 @@
 {
   "name": "artist-studio",
   "private": true,
-  "description": "Portfolio and shop for a fiber artist (React client + Express API)",
+  "description": "Minimal online store with an admin for products, orders and customers (React + Express)",
   "scripts": {
     "setup": "npm --prefix server install && npm --prefix client install",
     "dev:server": "npm --prefix server run dev",

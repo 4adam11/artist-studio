@@ -50,7 +50,7 @@ export function createApp({ store, config, mailer, payments }) {
   app.use((error, req, res, next) => {
     if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON body' });
     if (error instanceof multer.MulterError) {
-      const messages = { LIMIT_FILE_SIZE: 'Each image must be 8 MB or smaller', LIMIT_FILE_COUNT: 'Too many images', LIMIT_UNEXPECTED_FILE: 'Too many images' };
+      const messages = { LIMIT_FILE_SIZE: 'Each image must be 10 MB or smaller', LIMIT_FILE_COUNT: 'Too many images', LIMIT_UNEXPECTED_FILE: 'Too many images' };
       return res.status(400).json({ error: messages[error.code] || error.message });
     }
     if (error.status && error.status < 500) {

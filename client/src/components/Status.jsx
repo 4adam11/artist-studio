@@ -1,12 +1,12 @@
-export function Loading({ label = 'Loading…' }) {
-  return <p className="muted" role="status">{label}</p>;
+export function Loading({ label = 'Loading' }) {
+  return <p className="muted loading" role="status">{label}</p>;
 }
 
 export function ErrorNotice({ message, onRetry }) {
   return (
     <div className="notice notice-error" role="alert">
       <p>{message}</p>
-      {onRetry && <button type="button" className="btn btn-small" onClick={onRetry}>Try again</button>}
+      {onRetry && <button type="button" className="link-button" onClick={onRetry}>Try again</button>}
     </div>
   );
 }

@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
-import { ChevronIcon, ChevronLeftIcon, CloseIcon } from './Icons.jsx';
+import { ChevronLeftIcon, ChevronRightIcon, CloseIcon } from './Icons.jsx';
 
-// Main photo with thumbnails underneath. Clicking the photo opens a full-screen
-// view with arrow-key navigation, so buyers can look closely at stitches and texture.
+// Main photo with thumbnails. Clicking the photo opens a full-screen view
+// with arrow-key navigation.
 export default function Gallery({ images, alt }) {
-  const photos = images.filter(Boolean);
   const [active, setActive] = useState(0);
   const [zoomed, setZoomed] = useState(false);
-  const current = Math.min(active, photos.length - 1);
+  const count = images.length;
+  const current = Math.min(active, Math.max(0, count - 1));
 
-  const step = (direction) => setActive((index) => (index + direction + photos.length) % photos.length);
-
-  const count = photos.length;
   useEffect(() => {
     if (!zoomed) return undefined;
     const onKey = (event) => {
@@ -27,26 +24,28 @@ export default function Gallery({ images, alt }) {
     };
   }, [zoomed, count]);
 
-  if (!photos.length) return null;
+  if (!count) return <div className="gallery"><div className="gallery-main"><span className="image-empty" /></div></div>;
+
+  const step = (direction) => setActive((index) => (index + direction + count) % count);
 
   return (
     <div className="gallery">
-      <button type="button" className="gallery-main" onClick={() => setZoomed(true)} aria-label="View larger photo">
-        <img src={photos[current]} alt={`${alt}${photos.length > 1 ? ` (photo ${current + 1} of ${photos.length})` : ''}`} />
+      <button type="button" className="gallery-main" onClick={() => setZoomed(true)} aria-label="Zoom photo">
+        <img src={images[current]} alt={count > 1 ? `${alt}, photo ${current + 1} of ${count}` : alt} />
       </button>
 
-      {photos.length > 1 && (
+      {count > 1 && (
         <div className="gallery-thumbs">
-          {photos.map((photo, index) => (
+          {images.map((image, index) => (
             <button
-              key={photo + index}
+              key={image + index}
               type="button"
-              className={index === current ? 'active' : ''}
+              className={index === current ? 'is-active' : ''}
               onClick={() => setActive(index)}
               aria-label={`Show photo ${index + 1}`}
               aria-current={index === current}
             >
-              <img src={photo} alt="" loading="lazy" />
+              <img src={image} alt="" loading="lazy" />
             </button>
           ))}
         </div>
@@ -54,17 +53,17 @@ export default function Gallery({ images, alt }) {
 
       {zoomed && (
         <div className="lightbox" role="dialog" aria-modal="true" aria-label={alt} onClick={() => setZoomed(false)}>
-          <button type="button" className="lightbox-close icon-button" onClick={() => setZoomed(false)} aria-label="Close" autoFocus>
-            <CloseIcon size={26} />
+          <img src={images[current]} alt={alt} onClick={(event) => event.stopPropagation()} />
+          <button type="button" className="icon-button lightbox-close" onClick={() => setZoomed(false)} aria-label="Close" autoFocus>
+            <CloseIcon size={24} />
           </button>
-          <img src={photos[current]} alt={alt} onClick={(event) => event.stopPropagation()} />
-          {photos.length > 1 && (
+          {count > 1 && (
             <>
-              <button type="button" className="lightbox-nav prev icon-button" onClick={(event) => { event.stopPropagation(); step(-1); }} aria-label="Previous photo">
-                <ChevronLeftIcon size={30} />
+              <button type="button" className="icon-button lightbox-prev" onClick={(event) => { event.stopPropagation(); step(-1); }} aria-label="Previous photo">
+                <ChevronLeftIcon size={28} />
               </button>
-              <button type="button" className="lightbox-nav next icon-button" onClick={(event) => { event.stopPropagation(); step(1); }} aria-label="Next photo">
-                <ChevronIcon size={30} />
+              <button type="button" className="icon-button lightbox-next" onClick={(event) => { event.stopPropagation(); step(1); }} aria-label="Next photo">
+                <ChevronRightIcon size={28} />
               </button>
             </>
           )}

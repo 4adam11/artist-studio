@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { Honeypot } from './Status.jsx';
 
-export default function NewsletterForm({ source, compact = false }) {
+export default function NewsletterForm({ source }) {
   const [status, setStatus] = useState({ state: 'idle' });
 
   async function handleSubmit(event) {
@@ -17,19 +17,15 @@ export default function NewsletterForm({ source, compact = false }) {
     }
   }
 
-  if (status.state === 'sent') {
-    return <p className="success-text" role="status">Thank you for subscribing! You'll be the first to hear about new pieces.</p>;
-  }
+  if (status.state === 'sent') return <p role="status">Thanks, you're subscribed.</p>;
 
   return (
-    <form className={`newsletter ${compact ? 'newsletter-compact' : ''}`} onSubmit={handleSubmit}>
-      <label className="visually-hidden" htmlFor={`newsletter-${source}`}>Email address</label>
-      <input id={`newsletter-${source}`} name="email" type="email" placeholder="Your email" autoComplete="email" required maxLength={200} />
+    <form className="inline-form" onSubmit={handleSubmit}>
+      <label className="visually-hidden" htmlFor={`newsletter-${source}`}>Email</label>
+      <input id={`newsletter-${source}`} name="email" type="email" placeholder="Email" autoComplete="email" required maxLength={200} />
       <Honeypot />
-      <button type="submit" className="btn" disabled={status.state === 'sending'}>
-        {status.state === 'sending' ? 'Joining…' : 'Subscribe'}
-      </button>
-      {status.state === 'error' && <p className="error-text" role="alert">{status.message}</p>}
+      <button type="submit" className="btn btn-outline" disabled={status.state === 'sending'}>Subscribe</button>
+      {status.state === 'error' && <p className="error-text form-full">{status.message}</p>}
     </form>
   );
 }

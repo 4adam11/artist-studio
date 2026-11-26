@@ -1,61 +1,50 @@
-# Artist Studio
+# Store
 
-A portfolio and online shop for an artist working in fabric painting, crochet, and other handmade fiber art.
+A minimal online store with a Shopify-style admin. Sell anything: physical products with sizes, colours or other options, each with its own price, SKU and stock.
 
-## Features
+## What's included
 
-**Shopping**
-- Shop with search, category filters, sorting and an "in stock only" toggle (filters are kept in the URL, so they can be shared)
-- Product pages with a photo gallery and full-screen zoom, materials, size, care, shipping details, related pieces and a share button
-- "One of a kind" / "Only 2 left" / "Sold out" badges; sold-out pieces offer **"Email me when it's back"**
-- Slide-out cart with a **free-shipping progress bar**; cart is saved in the browser
-- **Saved items** (heart button), no account needed
-- Checkout with shipping address, **discount codes**, flat-rate shipping and free shipping over a set amount; the server calculates every total
-- Card payments with **Stripe Checkout**, or take orders and invoice buyers yourself
-- Order page with progress steps and tracking number
-- **Reviews** with star ratings, held for approval, and marked "Verified buyer" when the email matches a purchase
+**Storefront**
+- Home page, collection pages, "All products", search
+- Filters by product type and availability; sorting by price, date and name (kept in the URL)
+- Product pages with a photo gallery and zoom, option pickers (sold-out choices are crossed out), sale prices, low-stock notes and related products
+- Slide-out cart, saved in the browser
+- Checkout with shipping address, a choice of shipping rates, discount codes, tax and a live total calculated by the server
+- Card payments through Stripe Checkout, or take orders and mark them paid yourself
+- Order status page, plus "Find your order" by order number and email
+- Content pages (About, FAQ, Shipping & returns…), contact form, newsletter sign-up
+- Link previews and product data for search engines, sitemap and robots.txt
 
-**The studio**
-- Portfolio with comments and a "Commission something similar" button
-- **Commission requests** with budget, deadline and up to 3 inspiration photos
-- **Journal** (blog) and **Events** (markets, exhibitions)
-- **Newsletter** sign-up (footer, home page, after an order) with unsubscribe links
-- About, FAQ, Shipping & returns and Contact pages, plus site-wide search
+**Admin (`/admin`)**
+- **Home**: sales today / 7 days / 30 days, orders to fulfil, low stock, top products
+- **Orders**: filter and search; mark as paid, fulfil with tracking number and link (emails the customer), cancel and restock, private notes
+- **Products**: active / draft / archived; up to 3 options (e.g. Size, Colour) generating variants with their own price, compare-at price, SKU and stock; multiple photos (upload or URL, reorder); type, vendor, tags, collections, URL handle; duplicate
+- **Collections**: hand-picked products in your chosen order
+- **Customers**: built from orders, with total spent; CSV export
+- **Discounts**: percentage, fixed amount or free shipping; minimum order, usage limit, end date
+- **Pages**, **Messages**, **Subscribers** (CSV export with unsubscribe links)
+- **Settings**: store name, tagline, announcement bar, featured collection, currency, tax rate, shipping rates (with free-shipping thresholds), social links
 
-**Emails** (when SMTP is set up)
-- To you: new orders, messages and commission requests
-- To customers: order confirmation, "your order has shipped" with tracking, commission received, back in stock
-
-**Admin page (`/admin`)**
-- Overview: sales this month, orders to ship, new requests, reviews to approve, low stock
-- Manage shop products, portfolio, journal, events and discount codes, with photo uploads
-- Orders: change status, add a tracking number and email the buyer in one click
-- Commissions: track status (new, quoted, in progress…) and keep private notes
-- Approve reviews, read messages, moderate comments
-- Subscribers: download the list as CSV (with unsubscribe links) and see who is waiting for a restock
-- Settings: shipping prices, announcement bar, site description, social links
-
-**Found online**
-- Each product, artwork and journal post has its own title, description and image for link previews (WhatsApp, Instagram, Pinterest…), plus product data for Google, a sitemap and robots.txt
+**Emails** (once SMTP is set up): new orders and messages to you; order confirmation and shipping confirmation to customers.
 
 ## Structure
 
 ```
-client/   React 18 + React Router 7, built with Vite
-  src/api.js            every call to the backend
-  src/state/            site data, cart, saved items, and pure helpers (cart, catalogue)
-  src/pages/            one file per page; pages/admin/ is the admin area
-  src/components/       layout, header/footer, cards, gallery, cart drawer…
-server/   Express 5 API
-  src/app.js            builds the app (routes, uploads, serving the built client)
-  src/routes/           public.js (site) and admin.js (login required)
-  src/orders.js         prices, shipping, discounts, stock
+client/                 React 18 + React Router 7 + Vite; Geist typeface
+  src/styles.css        the whole design (colours and sizes are tokens at the top)
+  src/pages/            storefront pages
+  src/components/       header, footer, product card, gallery, cart drawer…
+  src/state/            store data, cart, and pure helpers with tests
+  src/admin/            the admin (loaded only when /admin is opened)
+server/                 Express 5 API
+  src/routes/public.js  storefront API
+  src/routes/admin.js   admin API (login required)
+  src/orders.js         prices, shipping, tax, discounts, stock
+  src/validate.js       input rules for every form, products and variants
   src/seo.js            link previews, sitemap, robots.txt
-  src/store.js          JSON-file database, saved to server/data/db.json
-  src/seed.js           starter content written on first run
-  src/payments.js       Stripe Checkout (optional)
-  src/mailer.js         emails (optional)
-  test/                 API tests (node --test)
+  src/store.js          JSON-file database (server/data/shop.json)
+  src/seed.js           sample products written on first run
+  test/                 API tests
 ```
 
 ## Run locally
@@ -63,55 +52,56 @@ server/   Express 5 API
 Requires **Node.js 22.9 or newer**.
 
 ```powershell
-npm run setup          # installs server and client dependencies
+npm run setup
+copy server\.env.example server\.env     # then set ADMIN_PASSWORD in server\.env
 ```
 
-Then start each part in its own terminal:
+Start each part in its own terminal:
 
 ```powershell
 npm run dev:server     # API on http://localhost:5050
-npm run dev:client     # site on http://localhost:5173
+npm run dev:client     # store on http://localhost:5173
 ```
 
-Open http://localhost:5173. The Vite dev server forwards `/api` and `/uploads` to the API, so the browser only uses one address.
+Open http://localhost:5173 for the store and http://localhost:5173/admin for the admin.
 
-If port 5050 is taken, set `PORT` in `server/.env` and start the client with `API_TARGET=http://localhost:<port>` set in the environment.
+The first run creates a few sample products, collections and pages. Edit or delete them in the admin and add your own.
 
 ## Configuration
 
-Copy `server/.env.example` to `server/.env`. Every setting is optional:
+`server/.env` (see `server/.env.example`):
 
-| Setting | What it turns on |
+| Setting | What it does |
 |---|---|
-| `ADMIN_PASSWORD` | The `/admin` page. Without it the admin area stays disabled. |
-| `STRIPE_SECRET_KEY` | Card payments through Stripe Checkout. Without it, checkout takes the order and you email the buyer to arrange payment. |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `NOTIFY_EMAIL`, `FROM_EMAIL` | Emails to you and to customers. Without them, everything is still saved and visible in `/admin`. |
-| `PUBLIC_URL` | The site's public address, used in emails, Stripe return links and link previews. |
-| `CURRENCY` | Shop currency, e.g. `usd`, `eur`, `gbp`, `inr`. |
+| `ADMIN_PASSWORD` | Turns on the admin. Without it the admin stays disabled. |
+| `STRIPE_SECRET_KEY` | Card payments through Stripe Checkout. Without it, orders are placed unpaid and you mark them paid in the admin. |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `NOTIFY_EMAIL`, `FROM_EMAIL` | Emails to you and to customers. Without them, everything is still visible in the admin. |
+| `PUBLIC_URL` | The store's public address, used in emails, Stripe return links and link previews. |
+| `CURRENCY` | Starting currency; change it later in Admin > Settings. |
 
-Shipping prices, the announcement bar and social links are changed on the admin **Settings** page.
+Everything else (store name, shipping rates, tax, announcement, social links) is set in **Admin > Settings**.
 
 ## Your data
 
-Everything (artworks, products, orders, messages, reviews, subscribers…) is saved in `server/data/db.json`, and uploaded photos in `server/data/uploads/`. This folder is not committed to git because it contains customer details, so **back it up**. Delete `db.json` to reset to the starter content.
+All store data is saved in `server/data/shop.json`, and uploaded photos in `server/data/uploads/`. The folder isn't committed to git because it contains customer details, so **back it up**. Delete `shop.json` to start again from the sample data.
 
 ## Tests and checks
 
 ```powershell
-npm test               # server API tests + client tests
-npm run lint           # ESLint for the client
+npm test               # API tests + storefront and admin logic tests
+npm run lint
 ```
 
-GitHub Actions runs tests, lint and a production build on every push (`.github/workflows/ci.yml`).
+GitHub Actions runs tests, lint and a production build on every push.
 
 ## Deploying
 
-The Express server serves the built site itself, so you only need one Node process:
+The server also serves the built store, so one Node process runs everything:
 
 ```powershell
 npm run setup
-npm run build          # builds client/dist
-npm start              # serves the site and the API on PORT
+npm run build
+npm start
 ```
 
-On a host such as Render or Railway, set `PUBLIC_URL`, `ADMIN_PASSWORD`, `TRUST_PROXY=true`, and Stripe and email settings if you use them. Make sure `server/data` is on a persistent disk, or set `DATA_DIR` to one.
+On a host such as Render or Railway, set `PUBLIC_URL`, `ADMIN_PASSWORD` and `TRUST_PROXY=true` (plus Stripe and email settings if used), and keep `server/data` on a persistent disk (or point `DATA_DIR` at one).

@@ -1,4 +1,4 @@
-const PENDING_KEY = 'artist-studio-pending-order';
+const PENDING_KEY = 'store-pending-order';
 
 // The cart is only emptied once the order the buyer just placed is confirmed,
 // so cancelling on the Stripe page brings them back to a full cart.

@@ -1,27 +1,36 @@
-// Shop-wide settings the artist edits on the admin page. Stored as a single
+// Store-wide settings edited on the admin Settings page. Stored as a single
 // record in the "settings" collection; anything not set yet uses these defaults.
 export const DEFAULT_SETTINGS = {
-  // Shown in the bar at the top of every page. When empty, the site shows the
-  // free-shipping offer instead (if there is one).
+  storeName: 'Artist Studio',
+  tagline: 'Fabric paintings, crochet and fiber work, made by hand.',
+  // Shown in the bar at the top of every page. When empty, the storefront
+  // shows the free-shipping threshold instead, if there is one.
   announcement: '',
-  siteDescription: 'Hand-painted fabric art, crochet and fiber pieces, made slowly and with care.',
-  shippingFlat: 8,
-  freeShippingOver: 75,
-  processingTime: 'Ready-made pieces ship within 3–5 business days',
-  shipsTo: 'Shipping worldwide from the studio',
+  seoDescription: 'Handmade fabric paintings, crochet and fiber work.',
+  currency: '',
+  taxRate: 0,
   contactEmail: '',
   instagram: '',
   facebook: '',
   pinterest: '',
-  etsy: ''
+  tiktok: '',
+  featuredCollectionId: 0,
+  shippingRates: [
+    { id: 'a1b2c3d4e5', name: 'Standard', price: 8, freeOver: 75 },
+    { id: 'f6a7b8c9d0', name: 'Express', price: 20, freeOver: 0 }
+  ]
 };
 
-export function getSettings(store) {
-  return { ...DEFAULT_SETTINGS, ...(store.find('settings', 1) || {}), id: undefined };
+export function getSettings(store, config) {
+  const saved = store.find('settings', 1) || {};
+  const settings = { ...DEFAULT_SETTINGS, ...saved };
+  delete settings.id;
+  settings.currency = (settings.currency || config.currency || 'usd').toLowerCase();
+  return settings;
 }
 
-export async function saveSettings(store, patch) {
+export async function saveSettings(store, config, patch) {
   if (store.find('settings', 1)) await store.update('settings', 1, patch);
   else await store.insert('settings', { ...patch });
-  return getSettings(store);
+  return getSettings(store, config);
 }

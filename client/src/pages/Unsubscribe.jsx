@@ -21,17 +21,17 @@ export default function Unsubscribe() {
   }
 
   return (
-    <section className="page narrow">
+    <section className="container section narrow">
       <h1>Unsubscribe</h1>
       {status.state === 'done' ? (
         <>
-          <p>You've been unsubscribed and won't receive the studio letter any more. Sorry to see you go!</p>
-          <Link to="/" className="text-link">Back to the studio</Link>
+          <p>You've been unsubscribed.</p>
+          <Link to="/" className="text-link">Back to the store</Link>
         </>
       ) : (
         <>
-          <p>Stop receiving the studio letter?</p>
-          <button type="button" className="btn" onClick={confirm} disabled={status.state === 'sending'}>Unsubscribe me</button>
+          <p>Stop receiving the newsletter?</p>
+          <button type="button" className="btn" onClick={confirm} disabled={status.state === 'sending'}>Unsubscribe</button>
           {status.state === 'error' && <p className="error-text">{status.message}</p>}
         </>
       )}

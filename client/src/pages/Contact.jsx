@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { Honeypot } from '../components/Status.jsx';
+import { useStore } from '../state/StoreContext.jsx';
 import { usePageTitle } from '../usePageTitle.js';
 
 export default function Contact() {
   usePageTitle('Contact');
+  const { settings } = useStore();
   const [status, setStatus] = useState({ state: 'idle' });
 
   async function handleSubmit(event) {
@@ -12,7 +14,7 @@ export default function Contact() {
     const data = Object.fromEntries(new FormData(event.currentTarget));
     setStatus({ state: 'sending' });
     try {
-      await api.sendContact(data);
+      await api.contact(data);
       setStatus({ state: 'sent' });
     } catch (error) {
       setStatus({ state: 'error', message: error.message });
@@ -20,32 +22,35 @@ export default function Contact() {
   }
 
   return (
-    <section className="page narrow">
-      <h1>Contact</h1>
-      <p>For commissions, collaborations, or questions, send a note here.</p>
+    <section className="container section narrow">
+      <header className="page-header">
+        <h1>Contact</h1>
+        <p className="muted">
+          Questions about an order, custom work or wholesale.
+          {settings.contactEmail && <> You can also email <a href={`mailto:${settings.contactEmail}`} className="text-link">{settings.contactEmail}</a>.</>}
+        </p>
+      </header>
       {status.state === 'sent' ? (
-        <p className="success-text" role="status">Thank you, your message has been received. I'll reply by email soon.</p>
+        <p role="status">Thanks, your message was sent. We will reply by email.</p>
       ) : (
-        <form className="form-card" onSubmit={handleSubmit}>
-          <label>
-            Your name
-            <input name="name" autoComplete="name" maxLength={80} required />
-          </label>
-          <label>
-            Your email
-            <input name="email" type="email" autoComplete="email" maxLength={200} required />
-          </label>
-          <label>
-            Message
-            <textarea name="message" rows={5} maxLength={5000} required />
-          </label>
-          <Honeypot />
-          <button className="btn" type="submit" disabled={status.state === 'sending'}>
-            {status.state === 'sending' ? 'Sending…' : 'Send'}
-          </button>
-          <div aria-live="polite">
-            {status.state === 'error' && <p className="error-text">{status.message}</p>}
+        <form className="form" onSubmit={handleSubmit}>
+          <div className="form-row">
+            <label className="field"><span>Name</span><input name="name" autoComplete="name" required maxLength={80} /></label>
+            <label className="field"><span>Email</span><input name="email" type="email" autoComplete="email" required maxLength={200} /></label>
           </div>
+          <div className="form-row">
+            <label className="field">
+              <span>Subject</span>
+              <select name="subject" defaultValue={settings.contactSubjects?.[0]}>
+                {(settings.contactSubjects || []).map((subject) => <option key={subject}>{subject}</option>)}
+              </select>
+            </label>
+            <label className="field"><span>Order number (optional)</span><input name="orderNumber" maxLength={20} /></label>
+          </div>
+          <label className="field"><span>Message</span><textarea name="message" rows={6} required maxLength={5000} /></label>
+          <Honeypot />
+          <button type="submit" className="btn" disabled={status.state === 'sending'}>{status.state === 'sending' ? 'Sending…' : 'Send'}</button>
+          {status.state === 'error' && <p className="error-text" role="alert">{status.message}</p>}
         </form>
       )}
     </section>

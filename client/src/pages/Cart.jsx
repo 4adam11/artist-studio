@@ -1,56 +1,37 @@
 import { Link } from 'react-router';
-import FreeShippingBar from '../components/FreeShippingBar.jsx';
-import QuantityStepper from '../components/QuantityStepper.jsx';
-import { formatPrice } from '../format.js';
+import CartLine from '../components/CartLine.jsx';
 import { useCart } from '../state/CartContext.jsx';
-import { useStudio } from '../state/StudioContext.jsx';
-import { useCartLines } from '../state/useCartLines.js';
+import { useStore } from '../state/StoreContext.jsx';
 import { usePageTitle } from '../usePageTitle.js';
 
 export default function Cart() {
   usePageTitle('Cart');
-  const { update, remove } = useCart();
-  const { config } = useStudio();
-  const { lines, total, adjusted } = useCartLines();
-  const count = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const { lines, subtotal, adjusted } = useCart();
+  const { money } = useStore();
 
   return (
-    <section className="page">
-      <h1>Your cart</h1>
-      {adjusted && (
-        <p className="notice" role="status">Some items changed because they sold out or have less stock now. Your cart has been updated.</p>
-      )}
+    <section className="container section narrow">
+      <header className="page-header">
+        <h1>Cart</h1>
+      </header>
+      {adjusted && <p className="notice" role="status">Some items sold out or have less stock now. Your cart has been updated.</p>}
 
       {!lines.length ? (
-        <div className="empty-state">
-          <p>Your cart is empty. Pick a favorite piece from the shop and it will appear here.</p>
-          <Link to="/shop" className="btn">Browse the shop</Link>
+        <div className="empty">
+          <p>Your cart is empty.</p>
+          <Link to="/collections/all" className="btn btn-outline">Continue shopping</Link>
         </div>
       ) : (
-        <div className="cart-layout">
-          <div>
-            <p className="muted">{count} {count === 1 ? 'item' : 'items'}</p>
-            {lines.map(({ product, quantity }) => (
-              <div key={product.id} className="cart-row">
-                <img src={product.image} alt="" className="cart-thumb" />
-                <div className="cart-row-main">
-                  <Link to={`/shop/${product.id}`} className="cart-title">{product.title}</Link>
-                  <span className="muted small">{formatPrice(product.price, config.currency)} each</span>
-                  <button type="button" className="link-button" onClick={() => remove(product.id)}>Remove</button>
-                </div>
-                <QuantityStepper product={product} quantity={quantity} onChange={update} />
-                <strong className="cart-line-total">{formatPrice(product.price * quantity, config.currency)}</strong>
-              </div>
-            ))}
+        <>
+          <div className="cart-lines">
+            {lines.map((line) => <CartLine key={line.variant.id} line={line} />)}
           </div>
-          <aside className="panel cart-aside">
-            <FreeShippingBar subtotal={total} />
-            <p className="summary-total"><span>Subtotal</span><strong>{formatPrice(total, config.currency)}</strong></p>
-            <p className="muted small">Shipping and discount codes are calculated at checkout.</p>
-            <Link to="/checkout" className="btn btn-block">Checkout</Link>
-            <Link to="/shop" className="text-link center-text">Continue shopping</Link>
-          </aside>
-        </div>
+          <div className="cart-summary">
+            <div className="row-between"><span>Subtotal</span><span>{money(subtotal)}</span></div>
+            <p className="muted small">Shipping, taxes and discounts are calculated at checkout.</p>
+            <Link to="/checkout" className="btn btn-block">Check out</Link>
+          </div>
+        </>
       )}
     </section>
   );

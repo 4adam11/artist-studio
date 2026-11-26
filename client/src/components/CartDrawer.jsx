@@ -1,23 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
-import { formatPrice } from '../format.js';
 import { useCart } from '../state/CartContext.jsx';
-import { useStudio } from '../state/StudioContext.jsx';
-import { useCartLines } from '../state/useCartLines.js';
-import FreeShippingBar from './FreeShippingBar.jsx';
+import { useStore } from '../state/StoreContext.jsx';
+import CartLine from './CartLine.jsx';
 import { CloseIcon } from './Icons.jsx';
-import QuantityStepper from './QuantityStepper.jsx';
 
-// Slide-out cart that opens when something is added, so shoppers can keep
-// browsing or go straight to checkout.
+// Slide-out cart that opens when something is added.
 export default function CartDrawer() {
-  const { drawerOpen, closeDrawer, update, remove } = useCart();
-  const { config } = useStudio();
-  const { lines, total } = useCartLines();
+  const { drawerOpen, closeDrawer, lines, subtotal } = useCart();
+  const { money } = useStore();
   const { pathname } = useLocation();
   const panel = useRef(null);
 
-  // Close when navigating to another page.
   useEffect(() => {
     closeDrawer();
   }, [pathname, closeDrawer]);
@@ -38,51 +32,28 @@ export default function CartDrawer() {
 
   return (
     <div className="drawer-backdrop" onClick={closeDrawer}>
-      <aside
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Your cart"
-        tabIndex={-1}
-        ref={panel}
-        onClick={(event) => event.stopPropagation()}
-      >
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Cart" tabIndex={-1} ref={panel} onClick={(event) => event.stopPropagation()}>
         <div className="drawer-head">
-          <h2>Your cart</h2>
+          <h2>Cart</h2>
           <button type="button" className="icon-button" onClick={closeDrawer} aria-label="Close cart"><CloseIcon /></button>
         </div>
-
-        {!lines.length ? (
-          <div className="drawer-body">
-            <p>Your cart is empty.</p>
-            <Link to="/shop" className="btn">Browse the shop</Link>
-          </div>
-        ) : (
+        {lines.length ? (
           <>
             <div className="drawer-body">
-              <FreeShippingBar subtotal={total} />
-              {lines.map(({ product, quantity }) => (
-                <div key={product.id} className="drawer-line">
-                  <img src={product.image} alt="" className="cart-thumb" />
-                  <div className="drawer-line-main">
-                    <Link to={`/shop/${product.id}`} className="cart-title">{product.title}</Link>
-                    <span className="muted small">{formatPrice(product.price, config.currency)}</span>
-                    <div className="drawer-line-actions">
-                      <QuantityStepper product={product} quantity={quantity} onChange={update} />
-                      <button type="button" className="link-button" onClick={() => remove(product.id)}>Remove</button>
-                    </div>
-                  </div>
-                  <strong>{formatPrice(product.price * quantity, config.currency)}</strong>
-                </div>
-              ))}
+              {lines.map((line) => <CartLine key={line.variant.id} line={line} compact />)}
             </div>
             <div className="drawer-foot">
-              <p className="summary-total"><span>Subtotal</span><strong>{formatPrice(total, config.currency)}</strong></p>
-              <p className="muted small">Shipping and discount codes are added at checkout.</p>
-              <Link to="/checkout" className="btn btn-block">Checkout</Link>
-              <Link to="/cart" className="btn btn-ghost btn-block">View cart</Link>
+              <div className="row-between"><span>Subtotal</span><span>{money(subtotal)}</span></div>
+              <p className="muted small">Shipping, taxes and discounts are calculated at checkout.</p>
+              <Link to="/checkout" className="btn btn-block">Check out</Link>
+              <Link to="/cart" className="btn btn-outline btn-block">View cart</Link>
             </div>
           </>
+        ) : (
+          <div className="drawer-body drawer-empty">
+            <p>Your cart is empty.</p>
+            <Link to="/collections/all" className="btn btn-outline">Continue shopping</Link>
+          </div>
         )}
       </aside>
     </div>

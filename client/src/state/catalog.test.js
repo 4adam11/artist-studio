@@ -1,42 +1,63 @@
 import { describe, expect, test } from 'vitest';
-import { filterProducts, matchesQuery, relatedProducts } from './catalog.js';
+import { filterProducts, findVariant, initialSelection, isValueAvailable, matchesQuery, productsInCollection, relatedProducts } from './catalog.js';
 
 const products = [
-  { id: 1, title: 'Mini Fabric Study', category: 'Fabric Painting', description: 'Small painting', materials: 'cotton', price: 28, stock: 5, rating: { average: 4, count: 2 } },
-  { id: 2, title: 'Crochet Pouch', category: 'Crochet', description: 'Soft pouch', materials: 'cotton yarn', price: 24, stock: 0, rating: { average: 0, count: 0 } },
-  { id: 3, title: 'Ocean Throw', category: 'Crochet', description: 'Blanket', materials: 'merino', price: 180, stock: 1, rating: { average: 5, count: 1 } }
+  { id: 1, title: 'Mini Study', productType: 'Painting', tags: ['wall art'], priceMin: 28, priceMax: 28, available: true, createdAt: '2026-01-01' },
+  { id: 2, title: 'Pouch', productType: 'Crochet', tags: ['gift'], description: 'cotton yarn', priceMin: 24, priceMax: 24, available: false, createdAt: '2026-03-01' },
+  { id: 3, title: 'Throw', productType: 'Crochet', tags: ['home'], priceMin: 140, priceMax: 190, available: true, createdAt: '2026-02-01' }
 ];
+const ids = (list) => list.map((item) => item.id);
 
-const ids = (list) => list.map((product) => product.id);
-
-describe('catalog', () => {
-  test('matchesQuery needs every word, ignoring case', () => {
-    expect(matchesQuery('COTTON pouch', ['Crochet Pouch', 'cotton yarn'])).toBe(true);
-    expect(matchesQuery('cotton blanket', ['Crochet Pouch', 'cotton yarn'])).toBe(false);
-    expect(matchesQuery('  ', ['anything'])).toBe(true);
+describe('browsing', () => {
+  test('matchesQuery needs every word and searches tags', () => {
+    expect(matchesQuery('COTTON pouch', ['Pouch', 'cotton yarn'])).toBe(true);
+    expect(matchesQuery('wall', ['Mini', ['wall art']])).toBe(true);
+    expect(matchesQuery('cotton blanket', ['Pouch', 'cotton yarn'])).toBe(false);
   });
 
-  test('filters by search, category and availability', () => {
-    expect(ids(filterProducts(products, { q: 'cotton' }))).toEqual([1, 2]);
-    expect(ids(filterProducts(products, { category: 'Crochet' }))).toEqual([3, 2]);
-    expect(ids(filterProducts(products, { category: 'Crochet', inStock: true }))).toEqual([3]);
+  test('filters by text, type and availability without reordering by default', () => {
+    expect(ids(filterProducts(products, { q: 'gift' }))).toEqual([2]);
+    expect(ids(filterProducts(products, { type: 'Crochet' }))).toEqual([2, 3]);
+    expect(ids(filterProducts(products, { inStock: true }))).toEqual([1, 3]);
+    expect(ids(filterProducts(products))).toEqual([1, 2, 3]);
   });
 
-  test('sorts by price, rating and puts available pieces first by default', () => {
+  test('sorts by date, price and title without changing the input', () => {
+    const copy = [...products];
+    expect(ids(filterProducts(products, { sort: 'newest' }))).toEqual([2, 3, 1]);
     expect(ids(filterProducts(products, { sort: 'price-asc' }))).toEqual([2, 1, 3]);
     expect(ids(filterProducts(products, { sort: 'price-desc' }))).toEqual([3, 1, 2]);
-    expect(ids(filterProducts(products, { sort: 'rating' }))).toEqual([3, 1, 2]);
-    expect(ids(filterProducts(products))).toEqual([3, 1, 2]);
-  });
-
-  test('does not change the original list', () => {
-    const copy = [...products];
-    filterProducts(products, { sort: 'price-desc' });
+    expect(ids(filterProducts(products, { sort: 'title' }))).toEqual([1, 2, 3]);
     expect(products).toEqual(copy);
   });
 
-  test('related products prefer the same category and skip sold-out pieces', () => {
-    const extra = [...products, { id: 4, title: 'Hat', category: 'Crochet', price: 30, stock: 2 }];
-    expect(ids(relatedProducts(extra[2], extra))).toEqual([4, 1]);
+  test('collections keep their manual order; related prefers the same collection', () => {
+    const collections = [{ id: 1, productIds: [3, 1, 99] }, { id: 2, productIds: [2] }];
+    expect(ids(productsInCollection(collections[0], products))).toEqual([3, 1]);
+    const extra = [...products, { id: 4, title: 'Hat', available: true }];
+    expect(ids(relatedProducts(extra[0], extra, collections))).toEqual([3, 4]);
+  });
+});
+
+describe('variants', () => {
+  const product = {
+    options: [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Oat', 'Clay'] }],
+    variants: [
+      { id: 'a', options: ['S', 'Oat'], available: false },
+      { id: 'b', options: ['S', 'Clay'], available: true },
+      { id: 'c', options: ['M', 'Oat'], available: true },
+      { id: 'd', options: ['M', 'Clay'], available: false }
+    ]
+  };
+
+  test('finds the variant for a selection and starts on an available one', () => {
+    expect(findVariant(product, ['M', 'Oat']).id).toBe('c');
+    expect(initialSelection(product)).toEqual(['S', 'Clay']);
+  });
+
+  test('marks values that have no stock for the current selection', () => {
+    expect(isValueAvailable(product, ['S', 'Clay'], 1, 'Oat')).toBe(false);
+    expect(isValueAvailable(product, ['M', 'Clay'], 1, 'Oat')).toBe(true);
+    expect(isValueAvailable(product, ['S', 'Clay'], 0, 'M')).toBe(true);
   });
 });

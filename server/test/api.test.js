@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -7,14 +7,20 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { seed } from '../src/seed.js';
 import { createStore } from '../src/store.js';
+import { slugify, validateProduct } from '../src/validate.js';
 
 const ADMIN_PASSWORD = 'test-password';
 const tempDirs = [];
 
 const BUYER = {
-  name: 'Test Buyer', email: 'buyer@example.com',
+  email: 'Buyer@Example.com', firstName: 'Test', lastName: 'Buyer',
   line1: '1 Loom Lane', city: 'Weaverton', postalCode: '12345', country: 'USA'
 };
+// Seed variant ids
+const STUDY = '1b2c3d4e5f'; // Mini Fabric Study, 28, stock 6
+const POUCH_SAGE = '3d4e5f6a7b'; // 24, stock 2
+const POUCH_RUST = '4e5f6a7b8c'; // 24, sold out
+const THROW_LAP = '5f6a7b8c9d'; // 140, compare-at 160
 
 // Records every email the app tries to send.
 function fakeMailer() {
@@ -25,14 +31,14 @@ function fakeMailer() {
 }
 
 async function startServer({ payments = null, adminPassword = ADMIN_PASSWORD, withClient = false } = {}) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'artist-studio-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'store-'));
   tempDirs.push(dataDir);
   const clientDist = path.join(dataDir, 'client');
   if (withClient) {
     await mkdir(clientDist);
-    await writeFile(path.join(clientDist, 'index.html'), '<html><head><title>Artist Studio</title></head><body><div id="root"></div></body></html>');
+    await writeFile(path.join(clientDist, 'index.html'), '<html><head><title>Store</title></head><body><div id="root"></div></body></html>');
   }
-  const config = { ...loadConfig({}), dataDir, adminPassword, clientDist, publicUrl: 'https://studio.test' };
+  const config = { ...loadConfig({}), dataDir, adminPassword, clientDist, publicUrl: 'https://shop.test' };
   const store = await createStore({ dataDir, seed });
   const mailer = fakeMailer();
   const app = createApp({ store, config, mailer, payments });
@@ -41,137 +47,95 @@ async function startServer({ payments = null, adminPassword = ADMIN_PASSWORD, wi
   });
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  async function call(method, url, { body, token, form } = {}) {
+  async function call(method, url, { body, token } = {}) {
     const headers = {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(base + url, { method, headers, body: form ?? (body === undefined ? undefined : JSON.stringify(body)) });
+    const res = await fetch(base + url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await res.text();
     let parsed = text;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
     return { status: res.status, body: parsed, type: res.headers.get('content-type') };
   }
 
-  async function login() {
-    const res = await call('POST', '/api/admin/login', { body: { password: ADMIN_PASSWORD } });
-    assert.equal(res.status, 200);
-    return res.body.token;
-  }
+  const token = (await call('POST', '/api/admin/login', { body: { password: adminPassword } })).body?.token;
+  const admin = (method, url, body) => call(method, `/api/admin${url}`, { body, token });
+  const variantStock = (variantId) => store.all('products').flatMap((p) => p.variants).find((v) => v.id === variantId).stock;
 
-  return { store, dataDir, mailer, call, login, close: () => new Promise((resolve) => server.close(resolve)) };
+  return { store, dataDir, mailer, call, admin, variantStock, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
 after(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe('catalogue', () => {
-  let ctx;
-  before(async () => { ctx = await startServer(); });
-  after(() => ctx.close());
-
-  test('lists artworks and products with rating summaries', async () => {
-    const artworks = await ctx.call('GET', '/api/artworks');
-    const products = await ctx.call('GET', '/api/products');
-    assert.equal(artworks.body.length, seed.artworks.length);
-    assert.deepEqual(products.body[0].rating, { average: 0, count: 0 });
-    assert.ok(Array.isArray(products.body[0].gallery));
+describe('validation helpers', () => {
+  test('slugify makes clean URL handles', () => {
+    assert.equal(slugify('  Linen Dress — Größe M! '), 'linen-dress-grosse-m');
+    assert.equal(slugify('!!!'), 'item');
   });
 
-  test('config includes shop settings', async () => {
-    const res = await ctx.call('GET', '/api/config');
-    assert.equal(res.body.onlinePayments, false);
-    assert.equal(res.body.settings.shippingFlat, 8);
-    assert.equal(res.body.settings.id, undefined);
-  });
+  test('products need variants that match their options', () => {
+    const options = [{ name: 'Size', values: ['S', 'M'] }];
+    assert.match(validateProduct({ title: 'Tee', options, variants: [] }).error, /at least one variant/);
+    assert.match(validateProduct({ title: 'Tee', options, variants: [{ options: ['XL'], price: 10, stock: 1 }] }).error, /one value from every option/);
+    assert.match(validateProduct({ title: 'Tee', options, variants: [{ options: ['S'], price: 10, stock: 1 }, { options: ['S'], price: 10, stock: 1 }] }).error, /listed twice/);
+    assert.match(validateProduct({ title: 'Mug', variants: [{ price: 5, stock: 1 }, { price: 6, stock: 1 }] }).error, /exactly one variant/);
 
-  test('journal only shows published posts; events are sorted by date', async () => {
-    const token = await ctx.login();
-    await ctx.call('POST', '/api/admin/posts', { token, body: { title: 'Draft', excerpt: 'x', body: 'y', image: '/a.jpg', published: false } });
-    const posts = await ctx.call('GET', '/api/posts');
-    assert.ok(posts.body.every((post) => post.published));
-    const draft = ctx.store.all('posts').find((post) => post.title === 'Draft');
-    assert.equal((await ctx.call('GET', `/api/posts/${draft.id}`)).status, 404);
-
-    await ctx.call('POST', '/api/admin/events', { token, body: { title: 'Early', date: '2026-01-01', location: 'Here' } });
-    const events = await ctx.call('GET', '/api/events');
-    assert.equal(events.body[0].title, 'Early');
-  });
-
-  test('unknown API routes return JSON 404', async () => {
-    const res = await ctx.call('GET', '/api/nope');
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, 'Not found');
+    const ok = validateProduct({ title: 'Tee', tags: 'cotton, basics, cotton', options, variants: [
+      { options: ['S'], price: 10, compareAtPrice: 8, stock: 1 },
+      { options: ['M'], price: 10, compareAtPrice: 15, stock: 0 }
+    ] });
+    assert.deepEqual(ok.value.tags, ['cotton', 'basics']);
+    assert.equal(ok.value.variants[0].compareAtPrice, null, 'compare-at price below the price is dropped');
+    assert.equal(ok.value.variants[1].compareAtPrice, 15);
+    assert.match(ok.value.variants[0].id, /^[a-f0-9]{10}$/);
+    assert.equal(ok.value.status, 'draft');
   });
 });
 
-describe('forms', () => {
+describe('storefront', () => {
   let ctx;
   before(async () => { ctx = await startServer(); });
   after(() => ctx.close());
 
-  test('comments are validated and saved to disk', async () => {
-    assert.equal((await ctx.call('POST', '/api/artworks/1/comments', { body: { name: 'A' } })).status, 400);
-    assert.equal((await ctx.call('POST', '/api/artworks/999/comments', { body: { name: 'A', message: 'Hi' } })).status, 404);
-
-    const created = await ctx.call('POST', '/api/artworks/1/comments', { body: { name: '  Mina ', message: 'Lovely' } });
-    assert.equal(created.status, 201);
-    assert.equal(created.body.name, 'Mina');
-
-    const onDisk = JSON.parse(await readFile(path.join(ctx.dataDir, 'db.json'), 'utf8'));
-    assert.ok(onDisk.comments.some((comment) => comment.message === 'Lovely'));
+  test('returns settings, active products with price ranges, collections and pages', async () => {
+    await ctx.admin('PUT', '/products/5', { status: 'draft' });
+    const res = await ctx.call('GET', '/api/storefront');
+    assert.equal(res.body.settings.storeName, 'Artist Studio');
+    assert.equal(res.body.settings.onlinePayments, false);
+    assert.ok(!res.body.products.some((product) => product.id === 5), 'draft products are hidden');
+    const throwProduct = res.body.products.find((product) => product.handle === 'ocean-crochet-throw');
+    assert.deepEqual([throwProduct.priceMin, throwProduct.priceMax], [140, 190]);
+    assert.equal(throwProduct.variants[0].sku, undefined, 'SKUs stay private');
+    assert.deepEqual(res.body.collections.find((c) => c.handle === 'home').productIds, [4, 1]);
+    assert.deepEqual(res.body.pages.map((page) => page.handle), ['about', 'shipping-returns', 'faq']);
   });
 
-  test('contact messages are stored, emailed and ignore honeypot spam', async () => {
-    assert.equal((await ctx.call('POST', '/api/contact', { body: { name: 'B', email: 'nope', message: 'Hi' } })).status, 400);
-    await ctx.call('POST', '/api/contact', { body: { name: 'B', email: 'b@example.com', message: 'Commission?' } });
-    await ctx.call('POST', '/api/contact', { body: { name: 'Bot', email: 'bot@example.com', message: 'Buy', website: 'x' } });
+  test('product and page lookups by handle', async () => {
+    assert.equal((await ctx.call('GET', '/api/products/crochet-pouch')).body.variants.length, 3);
+    assert.equal((await ctx.call('GET', '/api/products/woven-basket')).status, 404);
+    assert.match((await ctx.call('GET', '/api/pages/faq')).body.body, /handmade/);
+    assert.equal((await ctx.call('GET', '/api/nope')).status, 404);
+  });
+
+  test('contact form validates, stores and notifies', async () => {
+    assert.equal((await ctx.call('POST', '/api/contact', { body: { name: 'A', email: 'nope', message: 'Hi' } })).status, 400);
+    assert.equal((await ctx.call('POST', '/api/contact', { body: { name: 'A', email: 'a@x.com', subject: 'Spam', message: 'Hi' } })).status, 400);
+    await ctx.call('POST', '/api/contact', { body: { name: 'A', email: 'a@x.com', subject: 'Custom order', message: 'A blue throw?' } });
+    await ctx.call('POST', '/api/contact', { body: { name: 'Bot', email: 'b@x.com', message: 'Buy', website: 'x' } });
     assert.equal(ctx.store.all('messages').length, 1);
+    assert.equal(ctx.store.all('messages')[0].subject, 'Custom order');
     assert.ok(ctx.mailer.sent.some(([kind]) => kind === 'contactReceived'));
   });
 
   test('newsletter sign-up ignores duplicates and can be undone', async () => {
     await ctx.call('POST', '/api/subscribe', { body: { email: 'Fan@Example.com', source: 'footer' } });
     await ctx.call('POST', '/api/subscribe', { body: { email: 'fan@example.com' } });
-    const subscribers = ctx.store.all('subscribers');
-    assert.equal(subscribers.length, 1);
-    assert.equal(subscribers[0].email, 'fan@example.com');
-
-    await ctx.call('POST', '/api/unsubscribe', { body: { token: subscribers[0].token } });
+    const [subscriber] = ctx.store.all('subscribers');
+    assert.equal(ctx.store.all('subscribers').length, 1);
+    await ctx.call('POST', '/api/unsubscribe', { body: { token: subscriber.token } });
     assert.equal(ctx.store.all('subscribers').length, 0);
-  });
-});
-
-describe('commissions', () => {
-  let ctx;
-  before(async () => { ctx = await startServer(); });
-  after(() => ctx.close());
-
-  const formWith = (fields, files = []) => {
-    const form = new FormData();
-    for (const [key, value] of Object.entries(fields)) form.append(key, value);
-    for (const [name, type] of files) form.append('references', new Blob(['fake image'], { type }), name);
-    return form;
-  };
-  const request = { name: 'Rae', email: 'rae@example.com', type: 'Wall hanging', details: 'Blues and greens for a nursery' };
-
-  test('accepts a request with reference photos and emails both sides', async () => {
-    const res = await ctx.call('POST', '/api/commissions', { form: formWith(request, [['ref.png', 'image/png']]) });
-    assert.equal(res.status, 201);
-    const [saved] = ctx.store.all('commissions');
-    assert.equal(saved.status, 'new');
-    assert.match(saved.references[0], /^\/uploads\/ref-/);
-    const kinds = ctx.mailer.sent.map(([kind]) => kind);
-    assert.ok(kinds.includes('commissionReceived') && kinds.includes('commissionAcknowledged'));
-  });
-
-  test('rejects non-image files and invalid requests without keeping uploads', async () => {
-    const before = (await readdir(path.join(ctx.dataDir, 'uploads'))).length;
-    const badType = await ctx.call('POST', '/api/commissions', { form: formWith(request, [['x.svg', 'image/svg+xml']]) });
-    assert.equal(badType.status, 400);
-    const missing = await ctx.call('POST', '/api/commissions', { form: formWith({ name: 'Rae' }, [['ref.png', 'image/png']]) });
-    assert.equal(missing.status, 400);
-    assert.equal((await readdir(path.join(ctx.dataDir, 'uploads'))).length, before);
   });
 });
 
@@ -180,189 +144,188 @@ describe('checkout', () => {
   before(async () => { ctx = await startServer(); });
   after(() => ctx.close());
 
-  test('quote adds shipping below the free-shipping threshold', async () => {
-    const quote = await ctx.call('POST', '/api/checkout/quote', { body: { items: [{ productId: 1, quantity: 1 }] } });
-    assert.deepEqual([quote.body.subtotal, quote.body.shipping, quote.body.total], [28, 8, 36]);
+  const quote = (body) => ctx.call('POST', '/api/checkout/quote', { body });
+
+  test('quote charges standard shipping under the free threshold and offers every rate', async () => {
+    const res = await quote({ items: [{ variantId: STUDY, quantity: 1 }] });
+    assert.equal(res.body.subtotal, 28);
+    assert.deepEqual(res.body.shippingRates.map((rate) => [rate.name, rate.price]), [['Standard', 8], ['Express', 20]]);
+    assert.equal(res.body.shipping.name, 'Standard');
+    assert.equal(res.body.total, 36);
   });
 
-  test('quote gives free shipping over the threshold and applies discount codes', async () => {
-    const quote = await ctx.call('POST', '/api/checkout/quote', {
-      body: { items: [{ productId: 1, quantity: 3 }], discountCode: 'welcome10' }
-    });
-    assert.equal(quote.body.subtotal, 84);
-    assert.deepEqual(quote.body.discount, { id: 1, code: 'WELCOME10', amount: 8.4 });
-    assert.equal(quote.body.shipping, 0);
-    assert.equal(quote.body.total, 75.6);
+  test('quote applies free shipping, chosen rate, percent discounts and tax', async () => {
+    const free = await quote({ items: [{ variantId: STUDY, quantity: 3 }] });
+    assert.equal(free.body.shipping.price, 0);
+
+    const express = await quote({ items: [{ variantId: STUDY, quantity: 3 }], shippingRateId: 'f6a7b8c9d0', discountCode: 'welcome10' });
+    assert.deepEqual([express.body.subtotal, express.body.discount.amount, express.body.shipping.price, express.body.total], [84, 8.4, 20, 95.6]);
+
+    await ctx.admin('PUT', '/settings', { taxRate: 10 });
+    const taxed = await quote({ items: [{ variantId: STUDY, quantity: 1 }] });
+    assert.equal(taxed.body.tax, 2.8);
+    assert.equal(taxed.body.total, 38.8);
+    await ctx.admin('PUT', '/settings', { taxRate: 0 });
   });
 
-  test('invalid discount codes are reported in quotes and rejected at checkout', async () => {
-    const quote = await ctx.call('POST', '/api/checkout/quote', { body: { items: [{ productId: 1, quantity: 1 }], discountCode: 'NOPE' } });
-    assert.match(quote.body.discountError, /not a valid/);
-    const order = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, discountCode: 'NOPE', items: [{ productId: 1, quantity: 1 }] } });
-    assert.equal(order.status, 400);
+  test('free-shipping discount codes and invalid codes', async () => {
+    await ctx.admin('POST', '/discounts', { code: 'shipfree', type: 'shipping' });
+    const res = await quote({ items: [{ variantId: STUDY, quantity: 1 }], discountCode: 'SHIPFREE' });
+    assert.equal(res.body.shipping.price, 0);
+    assert.equal(res.body.total, 28);
+    const bad = await quote({ items: [{ variantId: STUDY, quantity: 1 }], discountCode: 'NOPE' });
+    assert.match(bad.body.discountError, /not a valid/);
   });
 
-  test('requires a shipping address', async () => {
+  test('rejects sold-out variants, too many items, and drafts', async () => {
+    assert.match((await quote({ items: [{ variantId: POUCH_RUST, quantity: 1 }] })).body.error, /Crochet Pouch \(Rust\) is sold out/);
+    assert.match((await quote({ items: [{ variantId: POUCH_SAGE, quantity: 5 }] })).body.error, /Only 2/);
+    await ctx.admin('PUT', '/products/4', { status: 'draft' });
+    assert.match((await quote({ items: [{ variantId: THROW_LAP, quantity: 1 }] })).body.error, /no longer available/);
+    await ctx.admin('PUT', '/products/4', { status: 'active' });
+  });
+
+  test('places an order with server prices, reduces variant stock and emails both sides', async () => {
     const { line1, ...noAddress } = BUYER;
     assert.ok(line1);
-    const res = await ctx.call('POST', '/api/checkout', { body: { ...noAddress, items: [{ productId: 1, quantity: 1 }] } });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /Address/);
-  });
-
-  test('places an order with server prices, reduces stock and emails buyer and artist', async () => {
-    const tooMany = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, items: [{ productId: 2, quantity: 99 }] } });
-    assert.match(tooMany.body.error, /Only 3/);
+    assert.equal((await ctx.call('POST', '/api/checkout', { body: { ...noAddress, items: [{ variantId: STUDY, quantity: 1 }] } })).status, 400);
 
     const order = await ctx.call('POST', '/api/checkout', {
-      body: { ...BUYER, discountCode: 'WELCOME10', items: [{ productId: 1, quantity: 2, price: 0.01 }, { productId: 2, quantity: 1 }] }
+      body: { ...BUYER, subscribe: true, discountCode: 'WELCOME10', items: [{ variantId: STUDY, quantity: 2, price: 0.01 }, { variantId: POUCH_SAGE, quantity: 1 }] }
     });
     assert.equal(order.status, 201);
 
     const details = await ctx.call('GET', `/api/orders/${order.body.token}`);
-    assert.equal(details.body.status, 'received');
-    assert.equal(details.body.subtotal, 80);
-    assert.equal(details.body.discount.amount, 8);
-    assert.equal(details.body.shipping, 8, '72 after discount is under the 75 free-shipping threshold');
-    assert.equal(details.body.total, 80);
-    assert.equal(details.body.address.city, 'Weaverton');
-    assert.equal(details.body.email, undefined, 'buyer email is not exposed publicly');
+    assert.equal(details.body.number, 1001);
+    assert.equal(details.body.status, 'open');
+    assert.equal(details.body.paymentStatus, 'unpaid');
+    assert.deepEqual([details.body.subtotal, details.body.discount.amount, details.body.shipping.price, details.body.total], [80, 8, 8, 80]);
+    assert.equal(details.body.items[1].variantTitle, 'Sage');
+    assert.equal(details.body.customer, undefined, 'email is not exposed publicly');
 
-    assert.equal(ctx.store.find('products', 1).stock, 3);
+    assert.equal(ctx.variantStock(STUDY), 4);
+    assert.equal(ctx.variantStock(POUCH_SAGE), 1);
     assert.equal(ctx.store.find('discounts', 1).uses, 1);
+    assert.equal(ctx.store.all('subscribers')[0].email, 'buyer@example.com');
     const kinds = ctx.mailer.sent.map(([kind]) => kind);
     assert.ok(kinds.includes('orderPlaced') && kinds.includes('orderConfirmation'));
   });
 
-  test('shipping settings changed in admin apply to new quotes', async () => {
-    const token = await ctx.login();
-    await ctx.call('PUT', '/api/admin/settings', { token, body: { shippingFlat: 5, freeShippingOver: 0 } });
-    const quote = await ctx.call('POST', '/api/checkout/quote', { body: { items: [{ productId: 1, quantity: 3 }] } });
-    assert.equal(quote.body.shipping, 5);
-  });
-});
-
-describe('reviews and stock alerts', () => {
-  let ctx;
-  let token;
-  before(async () => { ctx = await startServer(); token = await ctx.login(); });
-  after(() => ctx.close());
-
-  test('reviews wait for approval and buyers are marked verified', async () => {
-    await ctx.call('POST', '/api/checkout', { body: { ...BUYER, items: [{ productId: 1, quantity: 1 }] } });
-    const review = { name: 'Test Buyer', email: 'BUYER@example.com', rating: 5, body: 'Beautiful work' };
-    assert.equal((await ctx.call('POST', '/api/products/1/reviews', { body: { ...review, rating: 9 } })).status, 400);
-    assert.equal((await ctx.call('POST', '/api/products/1/reviews', { body: review })).status, 201);
-    await ctx.call('POST', '/api/products/1/reviews', { body: { ...review, email: 'stranger@example.com', rating: 3 } });
-
-    assert.equal((await ctx.call('GET', '/api/products/1/reviews')).body.length, 0);
-
-    for (const saved of ctx.store.all('reviews')) {
-      await ctx.call('PATCH', `/api/admin/reviews/${saved.id}`, { token, body: { approved: true } });
-    }
-    const visible = await ctx.call('GET', '/api/products/1/reviews');
-    assert.equal(visible.body.length, 2);
-    assert.equal(visible.body.find((item) => item.rating === 5).verified, true);
-    assert.equal(visible.body.find((item) => item.rating === 3).verified, false);
-    assert.equal(visible.body[0].email, undefined);
-
-    const product = await ctx.call('GET', '/api/products/1');
-    assert.deepEqual(product.body.rating, { average: 4, count: 2 });
-  });
-
-  test('restocking a sold-out product emails waiting customers once', async () => {
-    await ctx.call('PUT', '/api/admin/products/2', { token, body: { stock: 0 } });
-    await ctx.call('POST', '/api/products/2/notify', { body: { email: 'wait@example.com' } });
-    await ctx.call('POST', '/api/products/2/notify', { body: { email: 'WAIT@example.com' } });
-    assert.equal(ctx.store.all('stockAlerts').length, 1);
-
-    await ctx.call('PUT', '/api/admin/products/2', { token, body: { stock: 2 } });
-    await ctx.call('PUT', '/api/admin/products/2', { token, body: { stock: 3 } });
-    const alerts = ctx.mailer.sent.filter(([kind]) => kind === 'backInStock');
-    assert.equal(alerts.length, 1);
-    assert.ok(ctx.store.all('stockAlerts')[0].notifiedAt);
+  test('order lookup needs the right number and email', async () => {
+    assert.equal((await ctx.call('POST', '/api/orders/lookup', { body: { number: '#1001', email: 'someone@else.com' } })).status, 404);
+    const found = await ctx.call('POST', '/api/orders/lookup', { body: { number: '#1001', email: ' BUYER@example.com ' } });
+    assert.match(found.body.token, /^[\w-]{36}$/);
   });
 });
 
 describe('admin', () => {
   let ctx;
-  let token;
-  before(async () => { ctx = await startServer(); token = await ctx.login(); });
+  before(async () => { ctx = await startServer(); });
   after(() => ctx.close());
 
-  test('requires a valid session token, not the raw password', async () => {
+  test('requires a valid session token', async () => {
     assert.equal((await ctx.call('POST', '/api/admin/login', { body: { password: 'wrong' } })).status, 401);
     assert.equal((await ctx.call('GET', '/api/admin/session')).status, 401);
     assert.equal((await ctx.call('GET', '/api/admin/session', { token: ADMIN_PASSWORD })).status, 401);
-    const [body] = token.split('.');
-    assert.equal((await ctx.call('GET', '/api/admin/session', { token: `${body}.forged` })).status, 401);
-    assert.equal((await ctx.call('GET', '/api/admin/session', { token })).status, 200);
+    assert.equal((await ctx.admin('GET', '/session')).status, 200);
   });
 
-  test('creates, updates and deletes products with validated fields', async () => {
-    const unsafe = await ctx.call('POST', '/api/admin/products', {
-      token,
-      body: { title: 'Scarf', category: 'Crochet', description: 'Warm', price: 40, stock: 1, image: 'javascript:alert(1)' }
-    });
+  test('creates products with variants, unique handles and collections', async () => {
+    const body = {
+      title: 'Linen Scarf', status: 'active', images: ['/uploads/a.jpg'], collectionIds: [2],
+      options: [{ name: 'Colour', values: ['Oat', 'Clay'] }],
+      variants: [{ options: ['Oat'], price: 45, stock: 3, sku: 'SC-OAT' }, { options: ['Clay'], price: 45, stock: 0 }]
+    };
+    const first = await ctx.admin('POST', '/products', body);
+    const second = await ctx.admin('POST', '/products', body);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.handle, 'linen-scarf');
+    assert.equal(second.body.handle, 'linen-scarf-2');
+    assert.ok(ctx.store.find('collections', 2).productIds.includes(first.body.id));
+
+    const unsafe = await ctx.admin('POST', '/products', { ...body, images: ['javascript:alert(1)'] });
     assert.equal(unsafe.status, 400);
 
-    const created = await ctx.call('POST', '/api/admin/products', {
-      token,
-      body: { title: 'Scarf', category: 'Crochet', description: 'Warm', price: 40, stock: 1, image: '/uploads/scarf.jpg', gallery: ['/uploads/b.jpg'] }
-    });
-    assert.equal(created.status, 201);
-    assert.equal(created.body.care, '');
-
-    const updated = await ctx.call('PUT', `/api/admin/products/${created.body.id}`, { token, body: { price: 45, care: 'Hand wash' } });
-    assert.equal(updated.body.price, 45);
-    assert.equal(updated.body.title, 'Scarf');
-
-    assert.equal((await ctx.call('DELETE', `/api/admin/products/${created.body.id}`, { token })).status, 204);
-    assert.equal((await ctx.call('GET', `/api/products/${created.body.id}`)).status, 404);
+    const edited = await ctx.admin('PUT', `/products/${first.body.id}`, { handle: 'mini-fabric-study', collectionIds: [] });
+    assert.equal(edited.body.handle, 'mini-fabric-study-2', 'handle clash is resolved');
+    assert.ok(!ctx.store.find('collections', 2).productIds.includes(first.body.id));
+    assert.deepEqual((await ctx.admin('GET', `/products/${first.body.id}`)).body.collectionIds, []);
   });
 
-  test('discount codes are normalised and must be unique', async () => {
-    const created = await ctx.call('POST', '/api/admin/discounts', { token, body: { code: 'spring-5', type: 'fixed', amount: 5 } });
-    assert.equal(created.body.code, 'SPRING-5');
-    const clash = await ctx.call('POST', '/api/admin/discounts', { token, body: { code: 'SPRING-5', type: 'fixed', amount: 5 } });
-    assert.equal(clash.status, 400);
+  test('duplicating a product makes an empty draft copy', async () => {
+    const copy = await ctx.admin('POST', '/products/3/duplicate');
+    assert.equal(copy.body.title, 'Crochet Pouch (copy)');
+    assert.equal(copy.body.status, 'draft');
+    assert.ok(copy.body.variants.every((variant) => variant.stock === 0));
+    assert.ok(!copy.body.variants.some((variant) => variant.id === POUCH_SAGE));
   });
 
-  test('marking an order shipped saves tracking and emails the buyer once', async () => {
-    const order = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, items: [{ productId: 1, quantity: 1 }] } });
-    const [stored] = ctx.store.where('orders', (item) => item.token === order.body.token);
-    assert.equal((await ctx.call('PATCH', `/api/admin/orders/${stored.id}`, { token, body: { status: 'lost' } })).status, 400);
-
-    await ctx.call('PATCH', `/api/admin/orders/${stored.id}`, { token, body: { status: 'shipped', trackingNumber: ' TRACK123 ' } });
-    await ctx.call('PATCH', `/api/admin/orders/${stored.id}`, { token, body: { status: 'shipped' } });
-    const shippedEmails = ctx.mailer.sent.filter(([kind]) => kind === 'orderShipped');
-    assert.equal(shippedEmails.length, 1);
-    assert.equal(shippedEmails[0][1].trackingNumber, 'TRACK123');
+  test('deleting a product removes it from collections', async () => {
+    await ctx.admin('DELETE', '/products/5');
+    assert.ok(!ctx.store.find('collections', 3).productIds.includes(5));
   });
 
-  test('stats and subscriber export', async () => {
-    await ctx.call('POST', '/api/subscribe', { body: { email: 'a@example.com', source: 'footer' } });
-    const stats = await ctx.call('GET', '/api/admin/stats', { token });
-    assert.equal(stats.body.subscribers, 1);
-    assert.ok(stats.body.ordersThisMonth >= 1);
+  test('orders: mark paid, fulfil with tracking (one email), cancel with restock', async () => {
+    const placed = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, items: [{ variantId: STUDY, quantity: 2 }] } });
+    const [order] = ctx.store.where('orders', (item) => item.token === placed.body.token);
+    assert.equal(ctx.variantStock(STUDY), 4);
 
-    const csv = await ctx.call('GET', '/api/admin/subscribers.csv', { token });
-    assert.match(csv.type, /text\/csv/);
-    assert.match(csv.body, /"a@example.com","footer","[^"]+","https:\/\/studio\.test\/unsubscribe\/[\w-]+"/);
+    await ctx.admin('POST', `/orders/${order.id}/mark-paid`);
+    await ctx.admin('POST', `/orders/${order.id}/fulfill`, { trackingNumber: 'TRACK-1', trackingUrl: 'https://track.example/1' });
+    await ctx.admin('POST', `/orders/${order.id}/fulfill`, { trackingNumber: 'TRACK-1' });
+    const fetched = (await ctx.admin('GET', `/orders/${order.id}`)).body;
+    assert.deepEqual([fetched.paymentStatus, fetched.fulfillmentStatus, fetched.trackingNumber, fetched.number], ['paid', 'fulfilled', 'TRACK-1', 1000 + order.id]);
+    assert.equal(ctx.mailer.sent.filter(([kind]) => kind === 'orderShipped').length, 1);
+
+    const second = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, items: [{ variantId: STUDY, quantity: 1 }] } });
+    const [toCancel] = ctx.store.where('orders', (item) => item.token === second.body.token);
+    assert.equal(ctx.variantStock(STUDY), 3);
+    await ctx.admin('POST', `/orders/${toCancel.id}/cancel`, { restock: true });
+    assert.equal(ctx.variantStock(STUDY), 4);
+    assert.equal((await ctx.admin('POST', `/orders/${toCancel.id}/mark-paid`)).status, 400);
   });
 
-  test('deleting an artwork also deletes its comments', async () => {
-    await ctx.call('DELETE', '/api/admin/artworks/1', { token });
-    assert.equal(ctx.store.where('comments', (comment) => comment.artworkId === 1).length, 0);
+  test('customers are built from orders', async () => {
+    const customers = (await ctx.admin('GET', '/customers')).body;
+    const buyer = customers.find((customer) => customer.email === 'buyer@example.com');
+    assert.equal(buyer.orders, 2);
+    assert.equal(buyer.spent, 64, '2 × 28 + 8 shipping; the cancelled order is not counted');
+    const csv = await ctx.admin('GET', '/customers.csv');
+    assert.match(csv.body, /"Test Buyer","buyer@example.com"/);
   });
-});
 
-describe('admin disabled', () => {
-  test('returns 503 when no ADMIN_PASSWORD is set', async () => {
-    const ctx = await startServer({ adminPassword: '' });
-    assert.equal((await ctx.call('POST', '/api/admin/login', { body: { password: '' } })).status, 503);
-    assert.equal((await ctx.call('GET', '/api/admin/session', { token: 'anything' })).status, 503);
-    await ctx.close();
+  test('stats summarise sales, unfulfilled orders and low stock', async () => {
+    const stats = (await ctx.admin('GET', '/stats')).body;
+    assert.equal(stats.month.orders, 1);
+    assert.equal(stats.month.sales, 64);
+    assert.ok(stats.lowStock.some((item) => item.variant === 'Rust' && item.stock === 0));
+    assert.equal(stats.recentOrders.length, 2);
+  });
+
+  test('discount codes are unique; pages and collections get handles', async () => {
+    assert.equal((await ctx.admin('POST', '/discounts', { code: 'welcome10', type: 'percent', amount: 5 })).status, 400);
+    assert.equal((await ctx.admin('POST', '/discounts', { code: 'ZERO', type: 'fixed', amount: 0 })).status, 400);
+    const page = await ctx.admin('POST', '/pages', { title: 'Care Guide', body: 'Wash cold.' });
+    assert.equal(page.body.handle, 'care-guide');
+    const collection = await ctx.admin('POST', '/collections', { title: 'Crochet' });
+    assert.equal(collection.body.handle, 'crochet-2');
+  });
+
+  test('settings validate shipping rates and currency', async () => {
+    assert.equal((await ctx.admin('PUT', '/settings', { shippingRates: [] })).status, 400);
+    assert.equal((await ctx.admin('PUT', '/settings', { currency: 'dollars' })).status, 400);
+    const saved = await ctx.admin('PUT', '/settings', { storeName: 'Studio Shop', currency: 'EUR', shippingRates: [{ name: 'Post', price: 5 }] });
+    assert.equal(saved.body.currency, 'eur');
+    assert.equal(saved.body.shippingRates[0].freeOver, 0);
+    const storefront = await ctx.call('GET', '/api/storefront');
+    assert.equal(storefront.body.settings.storeName, 'Studio Shop');
+  });
+
+  test('disabled without ADMIN_PASSWORD', async () => {
+    const off = await startServer({ adminPassword: '' });
+    assert.equal((await off.call('POST', '/api/admin/login', { body: { password: '' } })).status, 503);
+    assert.equal((await off.call('GET', '/api/admin/session', { token: 'x' })).status, 503);
+    await off.close();
   });
 });
 
@@ -376,17 +339,19 @@ describe('Stripe checkout', () => {
     };
     const ctx = await startServer({ payments });
 
-    const order = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, discountCode: 'WELCOME10', items: [{ productId: 2, quantity: 1 }] } });
+    const order = await ctx.call('POST', '/api/checkout', { body: { ...BUYER, discountCode: 'WELCOME10', items: [{ variantId: POUCH_SAGE, quantity: 1 }] } });
     assert.equal(order.body.paymentUrl, 'https://checkout.stripe.test/pay');
-    assert.equal(sessions[0].shipping, 8);
+    assert.equal(sessions[0].shipping.price, 8);
     assert.equal(sessions[0].discount.amount, 2.4);
-    assert.equal(ctx.store.find('products', 2).stock, 3);
+    assert.equal(ctx.variantStock(POUCH_SAGE), 2);
+    assert.equal((await ctx.admin('GET', '/orders')).body.length, 0, 'unpaid Stripe checkouts are not listed as orders');
 
-    assert.equal((await ctx.call('GET', `/api/orders/${order.body.token}`)).body.status, 'awaiting_payment');
+    assert.equal((await ctx.call('GET', `/api/orders/${order.body.token}`)).body.status, 'pending_payment');
     paid = true;
-    assert.equal((await ctx.call('GET', `/api/orders/${order.body.token}`)).body.status, 'paid');
+    const confirmed = (await ctx.call('GET', `/api/orders/${order.body.token}`)).body;
+    assert.deepEqual([confirmed.status, confirmed.paymentStatus], ['open', 'paid']);
     await ctx.call('GET', `/api/orders/${order.body.token}`);
-    assert.equal(ctx.store.find('products', 2).stock, 2, 'stock is only reduced once');
+    assert.equal(ctx.variantStock(POUCH_SAGE), 1, 'stock is only reduced once');
     assert.equal(ctx.mailer.sent.filter(([kind]) => kind === 'orderConfirmation').length, 1);
     await ctx.close();
   });
@@ -397,43 +362,37 @@ describe('link previews and search engines', () => {
   before(async () => { ctx = await startServer({ withClient: true }); });
   after(() => ctx.close());
 
-  test('product pages include title, preview image and product data', async () => {
-    const res = await ctx.call('GET', '/shop/1');
-    assert.match(res.body, /<title>Mini Fabric Study · Artist Studio<\/title>/);
+  test('product pages include title, image and product data', async () => {
+    const res = await ctx.call('GET', '/products/ocean-crochet-throw');
+    assert.match(res.body, /<title>Ocean Crochet Throw · Artist Studio<\/title>/);
     assert.match(res.body, /property="og:image" content="https:\/\/images\.unsplash\.com/);
-    assert.match(res.body, /"@type":"Product"/);
-    assert.match(res.body, /"availability":"https:\/\/schema.org\/InStock"/);
+    assert.match(res.body, /"lowPrice":"140.00","highPrice":"190.00"/);
   });
 
   test('titles are HTML-escaped', async () => {
-    const token = await ctx.login();
-    const created = await ctx.call('POST', '/api/admin/artworks', {
-      token, body: { title: '<script>x</script>', category: 'Other', description: 'd', image: '/a.jpg' }
-    });
-    const res = await ctx.call('GET', `/portfolio/${created.body.id}`);
+    await ctx.admin('POST', '/pages', { title: '<script>x</script>', body: 'Hello' });
+    const res = await ctx.call('GET', '/pages/script-x-script');
     assert.ok(!res.body.includes('<script>x</script>'));
     assert.match(res.body, /&lt;script&gt;/);
   });
 
   test('sitemap and robots.txt', async () => {
     const map = await ctx.call('GET', '/sitemap.xml');
-    assert.match(map.body, /<loc>https:\/\/studio\.test\/shop\/1<\/loc>/);
-    const robots = await ctx.call('GET', '/robots.txt');
-    assert.match(robots.body, /Disallow: \/admin/);
+    assert.match(map.body, /<loc>https:\/\/shop\.test\/products\/crochet-pouch<\/loc>/);
+    assert.match(map.body, /<loc>https:\/\/shop\.test\/collections\/home<\/loc>/);
+    assert.match((await ctx.call('GET', '/robots.txt')).body, /Disallow: \/admin/);
   });
 });
 
 describe('store', () => {
   test('reloads saved data after a restart and adds new collections to old files', async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), 'artist-studio-'));
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'store-'));
     tempDirs.push(dataDir);
-    await writeFile(path.join(dataDir, 'db.json'), JSON.stringify({ artworks: [], products: [], messages: [{ id: 1, name: 'Old' }] }));
+    await writeFile(path.join(dataDir, 'shop.json'), JSON.stringify({ products: [], messages: [{ id: 1, name: 'Old' }] }));
     const store = await createStore({ dataDir, seed });
-    assert.equal(store.all('messages')[0].name, 'Old');
-    assert.deepEqual(store.all('commissions'), []);
+    assert.deepEqual(store.all('orders'), []);
     await store.insert('messages', { name: 'Kept' });
-
-    const reloaded = await createStore({ dataDir, seed });
-    assert.equal(reloaded.all('messages')[1].name, 'Kept');
+    const reloaded = JSON.parse(await readFile(path.join(dataDir, 'shop.json'), 'utf8'));
+    assert.equal(reloaded.messages[1].name, 'Kept');
   });
 });

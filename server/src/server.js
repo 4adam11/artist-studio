@@ -3,12 +3,13 @@ import { loadConfig } from './config.js';
 import { createMailer } from './mailer.js';
 import { createPayments } from './payments.js';
 import { seed } from './seed.js';
+import { getSettings } from './settings.js';
 import { createStore } from './store.js';
 
 const config = loadConfig();
 const store = await createStore({ dataDir: config.dataDir, seed });
-const mailer = createMailer(config);
-const payments = createPayments({ secretKey: config.stripeSecretKey, currency: config.currency, publicUrl: config.publicUrl });
+const mailer = createMailer(config, () => getSettings(store, config).storeName);
+const payments = createPayments({ secretKey: config.stripeSecretKey, publicUrl: config.publicUrl });
 
 const app = createApp({ store, config, mailer, payments });
 
@@ -27,9 +28,9 @@ app.listen(config.port, (error) => {
     process.exit(1);
   }
 
-  console.log(`Artist Studio API running at http://localhost:${config.port}`);
+  console.log(`Store API running at http://localhost:${config.port}`);
   console.log(`  Data file:       ${config.dataDir}`);
   console.log(`  Admin page:      ${config.adminPassword ? 'on' : 'off (set ADMIN_PASSWORD)'}`);
-  console.log(`  Online payments: ${payments ? 'Stripe' : 'off (orders are taken for manual invoicing)'}`);
+  console.log(`  Online payments: ${payments ? 'Stripe' : 'off (orders are taken and marked paid by hand)'}`);
   console.log(`  Email alerts:    ${mailer.enabled ? `to ${config.notifyEmail}` : 'off (set SMTP_HOST and NOTIFY_EMAIL)'}`);
 });

@@ -1,7 +1,9 @@
+import { orderNumber } from './orders.js';
+
 // Stripe Checkout through Stripe's REST API (no SDK needed).
-// Returns null when STRIPE_SECRET_KEY is not set; the shop then takes orders
-// without online payment and the artist invoices the buyer by hand.
-export function createPayments({ secretKey, currency, publicUrl }) {
+// Returns null when STRIPE_SECRET_KEY is not set; the store then takes orders
+// without online payment and the merchant marks them paid by hand.
+export function createPayments({ secretKey, publicUrl }) {
   if (!secretKey) return null;
 
   async function stripe(path, { method = 'GET', form } = {}) {
@@ -22,16 +24,22 @@ export function createPayments({ secretKey, currency, publicUrl }) {
 
   return {
     async createCheckoutSession(order) {
+      const { currency } = order;
       const form = {
         mode: 'payment',
-        customer_email: order.email,
-        client_reference_id: String(order.id),
-        success_url: `${publicUrl}/order/${order.token}?session_id={CHECKOUT_SESSION_ID}`,
+        customer_email: order.customer.email,
+        client_reference_id: String(orderNumber(order)),
+        success_url: `${publicUrl}/orders/${order.token}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${publicUrl}/cart`
       };
 
-      const lines = order.items.map((item) => ({ name: item.title, amount: item.price, quantity: item.quantity }));
-      if (order.shipping > 0) lines.push({ name: 'Shipping', amount: order.shipping, quantity: 1 });
+      const lines = order.items.map((item) => ({
+        name: item.variantTitle ? `${item.title} (${item.variantTitle})` : item.title,
+        amount: item.price,
+        quantity: item.quantity
+      }));
+      if (order.shipping.price > 0) lines.push({ name: `Shipping (${order.shipping.name})`, amount: order.shipping.price, quantity: 1 });
+      if (order.tax > 0) lines.push({ name: 'Tax', amount: order.tax, quantity: 1 });
       lines.forEach((line, i) => {
         form[`line_items[${i}][quantity]`] = line.quantity;
         form[`line_items[${i}][price_data][currency]`] = currency;
@@ -39,9 +47,9 @@ export function createPayments({ secretKey, currency, publicUrl }) {
         form[`line_items[${i}][price_data][product_data][name]`] = line.name;
       });
 
-      // Our own discount codes become a single-use Stripe coupon for this order,
-      // so the buyer sees the same discount on Stripe's page.
-      if (order.discount) {
+      // Our own discount codes become a single-use Stripe coupon for this
+      // order, so the buyer sees the same discount on Stripe's page.
+      if (order.discount?.amount > 0) {
         const coupon = await stripe('coupons', {
           method: 'POST',
           form: { amount_off: cents(order.discount.amount), currency, duration: 'once', max_redemptions: 1, name: order.discount.code }

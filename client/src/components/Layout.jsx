@@ -1,34 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { formatPrice } from '../format.js';
 import { useCart } from '../state/CartContext.jsx';
-import { useFavorites } from '../state/FavoritesContext.jsx';
-import { useStudio } from '../state/StudioContext.jsx';
+import { useStore } from '../state/StoreContext.jsx';
 import CartDrawer from './CartDrawer.jsx';
-import { BagIcon, CloseIcon, HeartIcon, MenuIcon, SearchIcon } from './Icons.jsx';
+import { BagIcon, CloseIcon, MenuIcon, SearchIcon } from './Icons.jsx';
 import NewsletterForm from './NewsletterForm.jsx';
 import { ErrorNotice, Loading } from './Status.jsx';
 
-const NAV = [
-  ['/shop', 'Shop'],
-  ['/portfolio', 'Portfolio'],
-  ['/commissions', 'Commissions'],
-  ['/journal', 'Journal'],
-  ['/events', 'Events'],
-  ['/about', 'About']
-];
-
 export default function Layout() {
-  const { status, error, retry } = useStudio();
+  const { status, error, retry } = useStore();
 
   return (
-    <div className="app-shell">
+    <div className="site">
       <a href="#main" className="skip-link">Skip to content</a>
-      {status === 'ready' && <AnnouncementBar />}
+      <Announcement />
       <Header />
       <main id="main">
-        {status === 'loading' && <section className="page"><Loading label="Loading your studio experience…" /></section>}
-        {status === 'error' && <section className="page"><ErrorNotice message={error} onRetry={retry} /></section>}
+        {status === 'loading' && <div className="container section"><Loading /></div>}
+        {status === 'error' && <div className="container section"><ErrorNotice message={error} onRetry={retry} /></div>}
         {status === 'ready' && <Outlet />}
       </main>
       <Footer />
@@ -37,117 +26,87 @@ export default function Layout() {
   );
 }
 
-function AnnouncementBar() {
-  const { settings, config } = useStudio();
-  const text = settings.announcement ||
-    (settings.freeShippingOver > 0 ? `Free shipping on orders over ${formatPrice(settings.freeShippingOver, config.currency)}` : '');
-  if (!text) return null;
-  return <div className="announcement">{text}</div>;
+function Announcement() {
+  const { status, settings, money } = useStore();
+  if (status !== 'ready') return null;
+  const freeRate = settings.shippingRates.find((rate) => rate.freeOver > 0);
+  const text = settings.announcement || (freeRate ? `Free ${freeRate.name.toLowerCase()} shipping on orders over ${money(freeRate.freeOver)}` : '');
+  return text ? <div className="announcement">{text}</div> : null;
 }
 
 function Header() {
+  const { settings, collections, pages } = useStore();
   const { count, openDrawer } = useCart();
-  const favorites = useFavorites();
+  const hasAbout = pages.some((page) => page.handle === 'about');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    setMenuOpen(false);
-    setSearchOpen(false);
-  }, [pathname]);
+  useEffect(() => setMenuOpen(false), [pathname]);
 
-  function handleSearch(event) {
-    event.preventDefault();
-    const query = new FormData(event.currentTarget).get('q').trim();
-    if (query) navigate(`/search?q=${encodeURIComponent(query)}`);
-  }
+  const nav = [['/collections/all', 'Shop all'], ...collections.slice(0, 3).map((c) => [`/collections/${c.handle}`, c.title])];
 
   return (
-    <header className="site-header">
-      <div className="header-inner">
-        <button type="button" className="icon-button menu-toggle" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen} aria-controls="main-nav" aria-label="Menu">
+    <header className="header">
+      <div className="container header-inner">
+        <button type="button" className="icon-button menu-toggle" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen} aria-controls="site-nav" aria-label="Menu">
           {menuOpen ? <CloseIcon /> : <MenuIcon />}
         </button>
-        <Link to="/" className="brand">Artist Studio</Link>
-        <nav id="main-nav" className={`nav ${menuOpen ? 'nav-open' : ''}`} aria-label="Main">
-          {NAV.map(([to, label]) => <NavLink key={to} to={to}>{label}</NavLink>)}
-          <NavLink to="/contact" className="nav-mobile-only">Contact</NavLink>
+        <Link to="/" className="logo">{settings.storeName}</Link>
+        <nav id="site-nav" className={`nav ${menuOpen ? 'is-open' : ''}`} aria-label="Main">
+          {nav.map(([to, label]) => <NavLink key={to} to={to}>{label}</NavLink>)}
+          {hasAbout && <NavLink to="/pages/about">About</NavLink>}
+          <NavLink to="/contact" className="nav-mobile">Contact</NavLink>
         </nav>
         <div className="header-actions">
-          <button type="button" className="icon-button" onClick={() => setSearchOpen((open) => !open)} aria-expanded={searchOpen} aria-label="Search">
-            <SearchIcon />
-          </button>
-          <Link to="/favorites" className="icon-button" aria-label={`Saved items (${favorites.count})`}>
-            <HeartIcon />
-            {favorites.count > 0 && <span className="icon-badge">{favorites.count}</span>}
-          </Link>
-          <button type="button" className="icon-button" onClick={openDrawer} aria-label={`Cart (${count} items)`}>
+          <button type="button" className="icon-button" onClick={() => navigate('/search')} aria-label="Search"><SearchIcon /></button>
+          <button type="button" className="icon-button cart-button" onClick={openDrawer} aria-label={`Cart, ${count} items`}>
             <BagIcon />
-            {count > 0 && <span className="icon-badge">{count}</span>}
+            {count > 0 && <span className="cart-count">{count}</span>}
           </button>
         </div>
       </div>
-      {searchOpen && (
-        <form className="header-search" role="search" onSubmit={handleSearch}>
-          <label className="visually-hidden" htmlFor="site-search">Search the studio</label>
-          <input id="site-search" name="q" type="search" placeholder="Search pieces, stories, materials…" autoFocus />
-          <button type="submit" className="btn">Search</button>
-        </form>
-      )}
     </header>
   );
 }
 
 function Footer() {
-  const { status, settings } = useStudio();
-  const socials = status === 'ready'
-    ? [['Instagram', settings.instagram], ['Facebook', settings.facebook], ['Pinterest', settings.pinterest], ['Etsy', settings.etsy]].filter(([, url]) => url)
-    : [];
+  const { status, settings, pages, collections } = useStore();
+  if (status !== 'ready') return null;
+  const social = Object.entries(settings.social || {});
+  const socialNames = { instagram: 'Instagram', facebook: 'Facebook', pinterest: 'Pinterest', tiktok: 'TikTok' };
 
   return (
-    <footer className="site-footer">
-      <div className="footer-grid">
-        <div className="footer-newsletter">
-          <h2>Join the studio letter</h2>
-          <p className="muted">New pieces, market dates and stories from the studio, a few times a year. No spam, ever.</p>
-          <NewsletterForm source="footer" compact />
-        </div>
+    <footer className="footer">
+      <div className="container footer-grid">
         <div>
-          <h3>Shop</h3>
+          <h2 className="footer-heading">Shop</h2>
           <ul>
-            <li><Link to="/shop">All pieces</Link></li>
-            <li><Link to="/commissions">Commissions</Link></li>
-            <li><Link to="/favorites">Saved items</Link></li>
+            <li><Link to="/collections/all">All products</Link></li>
+            {collections.map((collection) => <li key={collection.id}><Link to={`/collections/${collection.handle}`}>{collection.title}</Link></li>)}
           </ul>
         </div>
         <div>
-          <h3>Studio</h3>
+          <h2 className="footer-heading">Help</h2>
           <ul>
-            <li><Link to="/about">About</Link></li>
-            <li><Link to="/portfolio">Portfolio</Link></li>
-            <li><Link to="/journal">Journal</Link></li>
-            <li><Link to="/events">Events</Link></li>
-          </ul>
-        </div>
-        <div>
-          <h3>Help</h3>
-          <ul>
-            <li><Link to="/shipping-returns">Shipping &amp; returns</Link></li>
-            <li><Link to="/faq">FAQ</Link></li>
+            {pages.map((page) => <li key={page.handle}><Link to={`/pages/${page.handle}`}>{page.title}</Link></li>)}
+            <li><Link to="/orders/lookup">Find your order</Link></li>
             <li><Link to="/contact">Contact</Link></li>
           </ul>
         </div>
+        <div className="footer-newsletter">
+          <h2 className="footer-heading">Newsletter</h2>
+          <p className="muted">New work and restocks, a few times a year.</p>
+          <NewsletterForm source="footer" />
+        </div>
       </div>
-      <div className="footer-bottom">
-        <p>© {new Date().getFullYear()} Artist Studio · Handmade with patience</p>
-        {socials.length > 0 && (
-          <ul className="socials">
-            {socials.map(([name, url]) => <li key={name}><a href={url} target="_blank" rel="noopener noreferrer">{name}</a></li>)}
+      <div className="container footer-bottom">
+        <span>© {new Date().getFullYear()} {settings.storeName}</span>
+        {social.length > 0 && (
+          <ul className="inline-list">
+            {social.map(([key, url]) => <li key={key}><a href={url} target="_blank" rel="noopener noreferrer">{socialNames[key]}</a></li>)}
           </ul>
         )}
-        <Link to="/admin" className="footer-link">Studio admin</Link>
       </div>
     </footer>
   );

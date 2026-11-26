@@ -2,12 +2,12 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 // A small JSON-file database. All data is kept in memory and written to
-// <dataDir>/db.json after every change, so content survives restarts without
+// <dataDir>/shop.json after every change, so content survives restarts without
 // needing a separate database server. Writes go to a temp file first and are
 // then renamed into place, so a crash mid-write never leaves a corrupt file.
-export async function createStore({ dataDir, seed }) {
+export async function createStore({ dataDir, seed, fileName = 'shop.json' }) {
   await fs.mkdir(dataDir, { recursive: true });
-  const file = path.join(dataDir, 'db.json');
+  const file = path.join(dataDir, fileName);
 
   let data;
   try {
