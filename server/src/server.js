@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createMailer } from './mailer.js';
@@ -5,6 +7,9 @@ import { createPayments } from './payments.js';
 import { seed } from './seed.js';
 import { getSettings } from './settings.js';
 import { createStore } from './store.js';
+import { loadEnvFile } from './env.js';
+
+loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'));
 
 const config = loadConfig();
 const store = await createStore({ dataDir: config.dataDir, seed });

@@ -7,6 +7,7 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { seed } from '../src/seed.js';
 import { createStore } from '../src/store.js';
+import { loadEnvFile } from '../src/env.js';
 import { slugify, validateProduct } from '../src/validate.js';
 
 const ADMIN_PASSWORD = 'test-password';
@@ -394,5 +395,21 @@ describe('store', () => {
     await store.insert('messages', { name: 'Kept' });
     const reloaded = JSON.parse(await readFile(path.join(dataDir, 'shop.json'), 'utf8'));
     assert.equal(reloaded.messages[1].name, 'Kept');
+  });
+});
+
+describe('.env loading', () => {
+  test('reads KEY=value lines, handles quotes and comments, and never overrides real variables', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'store-env-'));
+    tempDirs.push(dir);
+    const file = path.join(dir, '.env');
+    await writeFile(file, '# comment\r\nENV_TEST_A=hello\r\nENV_TEST_B="two words"\nENV_TEST_C=value # note\nENV_TEST_EMPTY=\nENV_TEST_KEEP=from-file\n');
+    process.env.ENV_TEST_KEEP = 'already-set';
+    assert.equal(loadEnvFile(file), true);
+    assert.deepEqual(
+      ['A', 'B', 'C', 'EMPTY', 'KEEP'].map((key) => process.env[`ENV_TEST_${key}`]),
+      ['hello', 'two words', 'value', '', 'already-set']
+    );
+    assert.equal(loadEnvFile(path.join(dir, 'missing.env')), false);
   });
 });

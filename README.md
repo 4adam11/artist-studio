@@ -49,23 +49,31 @@ server/                 Express 5 API
 
 ## Run locally
 
-Requires **Node.js 22.9 or newer**.
+Requires **Node.js 22.12 or newer** (20.19+ also works). Check with `node -v`; get the "LTS" version from https://nodejs.org.
 
 ```powershell
-npm run setup
-copy server\.env.example server\.env     # then set ADMIN_PASSWORD in server\.env
+npm run dev
 ```
 
-Start each part in its own terminal:
+That one command installs everything on the first run, creates `server/.env`, and starts the store. Open:
 
-```powershell
-npm run dev:server     # API on http://localhost:5050
-npm run dev:client     # store on http://localhost:5173
-```
+- Store: http://localhost:5173
+- Admin: http://localhost:5173/admin (set `ADMIN_PASSWORD` in `server/.env` first, then run `npm run dev` again)
 
-Open http://localhost:5173 for the store and http://localhost:5173/admin for the admin.
+Press **Ctrl+C** to stop. The first run creates a few sample products, collections and pages; edit or delete them in the admin.
 
-The first run creates a few sample products, collections and pages. Edit or delete them in the admin and add your own.
+You can also start the two parts separately with `npm run dev:server` and `npm run dev:client`.
+
+### If it doesn't start
+
+| You see | Fix |
+|---|---|
+| `This store needs Node.js 22.12 or newer` | Install the LTS version from https://nodejs.org, then close and reopen VS Code. |
+| `npm` or `node` "is not recognized" | Install Node.js, then close and reopen VS Code (restart the computer if it persists). |
+| `running scripts is disabled on this system` (PowerShell) | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, answer `Y`, and try again. |
+| `Port 5050 is already in use` | The store is already running in another terminal. Close it (or restart VS Code). |
+| The page says "Could not connect to the store" | The API part isn't running. Use `npm run dev`, which starts both parts. |
+| `Missing script: "dev"` | You're on an old version of the code. Switch to the latest branch and run `git pull`. |
 
 ## Configuration
 
